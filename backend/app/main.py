@@ -1,26 +1,27 @@
-﻿# backend/app/main.py
+# backend/app/main.py
+import os
+import uvicorn
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-import uvicorn
-import os
 
 from app.core.settings import settings
 from app.utils.logging import setup_logging
 from app.utils.errors import register_exception_handlers
 
-# Routers de la API
+# Routers
 from app.api.auth import router as auth_router
 from app.api.clients import router as clients_router
 from app.api.items import router as items_router
 from app.api.purchases import router as purchases_router
 from app.api.analytics import router as analytics_router
 from app.api.ai import router as ai_router
+from app.api.admin import router as admin_router  # <- NUEVO: seeding temporal
 
 # 1) Logging
 setup_logging()
 
-# 2) FastAPI app
+# 2) App
 app = FastAPI(
     title=settings.PROJECT_NAME,
     version=settings.VERSION,
@@ -28,7 +29,7 @@ app = FastAPI(
     redoc_url="/redoc" if settings.DEBUG else None,
 )
 
-# 2.1) Asegurar carpeta media y montarla
+# 2.1) Static /media
 MEDIA_DIR = os.path.join(os.getcwd(), "media")
 os.makedirs(MEDIA_DIR, exist_ok=True)
 app.mount("/media", StaticFiles(directory=MEDIA_DIR), name="media")
@@ -46,7 +47,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# 4) Errores globales
+# 4) Global errors
 register_exception_handlers(app)
 
 # 5) Routers
@@ -56,6 +57,7 @@ app.include_router(items_router,     prefix="/items",     tags=["items"])
 app.include_router(purchases_router, prefix="/purchases", tags=["purchases"])
 app.include_router(analytics_router, prefix="/analytics", tags=["analytics"])
 app.include_router(ai_router,        prefix="/ai",        tags=["ai"])
+app.include_router(admin_router,     prefix="/admin",     tags=["admin"])  # <- seeding
 
 # 6) Health
 @app.get("/health")
