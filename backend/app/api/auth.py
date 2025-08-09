@@ -13,9 +13,10 @@ class LoginOut(BaseModel):
     token_type: str = "bearer"
     user: dict | None = None
 
-@router.post("/login", response_model=LoginOut)
+# 👇 Añadida barra final al endpoint
+@router.post("/login/", response_model=LoginOut)
 def login(payload: LoginIn):
-    # 👇 DEMO: credenciales fijas de desarrollo
+    # DEMO: credenciales fijas de desarrollo
     if payload.email == "admin@example.com" and payload.password == "admin123":
         return {
             "access_token": "dev-token-123",  # en producción genera JWT
