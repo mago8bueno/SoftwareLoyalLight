@@ -1,8 +1,4 @@
-<<<<<<< Updated upstream
 # backend/app/main.py
-=======
-﻿# backend/app/main.py
->>>>>>> Stashed changes
 import os
 import uvicorn
 from fastapi import FastAPI
@@ -20,11 +16,7 @@ from app.api.items import router as items_router
 from app.api.purchases import router as purchases_router
 from app.api.analytics import router as analytics_router
 from app.api.ai import router as ai_router
-<<<<<<< Updated upstream
-from app.api.admin import router as admin_router  # <- NUEVO: seeding temporal
-=======
 from app.api.admin import router as admin_router  # seeding temporal
->>>>>>> Stashed changes
 
 # 1) Logging
 setup_logging()
@@ -79,11 +71,7 @@ app.include_router(items_router,     prefix="/items",     tags=["items"])
 app.include_router(purchases_router, prefix="/purchases", tags=["purchases"])
 app.include_router(analytics_router, prefix="/analytics", tags=["analytics"])
 app.include_router(ai_router,        prefix="/ai",        tags=["ai"])
-<<<<<<< Updated upstream
-app.include_router(admin_router,     prefix="/admin",     tags=["admin"])  # <- seeding
-=======
 app.include_router(admin_router,     prefix="/admin",     tags=["admin"])  # seeding
->>>>>>> Stashed changes
 
 # 6) Health (→ barra final)
 @app.get("/health/")
