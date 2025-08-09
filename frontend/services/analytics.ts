@@ -1,13 +1,11 @@
 // services/analytics.ts
-// Endpoints de analítica (Dashboard): tendencia de ventas, top clientes/productos y churn risk.
-// Usa la instancia Axios `fetcher` (con baseURL y Authorization) definida en `services/fetcher.ts`.
+// Analítica: un único endpoint backend (/analytics/overview) y helpers que
+// exponen las partes (trend7d, topCustomers, topProducts, churnRisk).
 
-import { fetcher } from './fetcher';
+import { fetcher } from "./fetcher";
 
-/** Serie temporal de ingresos por día (últimos 7 días) */
 export type SalesPoint = { day: string; revenue: number };
 
-/** Top clientes por gasto en los últimos 90 días */
 export type TopCustomer = {
   client_id: number;
   client_name: string;
@@ -16,7 +14,6 @@ export type TopCustomer = {
   total_spent: number;
 };
 
-/** Top productos por unidades vendidas en los últimos 90 días */
 export type TopProduct = {
   item_id: number;
   item_name: string;
@@ -24,7 +21,6 @@ export type TopProduct = {
   revenue: number;
 };
 
-/** Clientes en riesgo de churn según su última compra */
 export type ChurnRisk = {
   client_id: number;
   name: string;
@@ -33,37 +29,42 @@ export type ChurnRisk = {
   churn_score: number;
 };
 
-/**
- * Utilidad pequeña para envolver llamadas y garantizar que siempre devolvemos arrays.
- * Deja trazas útiles si el backend falla.
- */
-async function safeGetArray<T>(path: string, params?: Record<string, unknown>): Promise<T[]> {
-  try {
-    const { data } = await fetcher.get<T[]>(path, { params });
-    // Normaliza: si el backend devolviera algo raro, caemos a []
-    return Array.isArray(data) ? data : [];
-  } catch (err) {
-    // El interceptor de fetcher ya loguea detalles; aquí solo devolvemos []
-    return [];
-  }
+export type Overview = {
+  topCustomers: TopCustomer[];
+  topProducts: TopProduct[];
+  trend7d: SalesPoint[];
+  churnRisk: ChurnRisk[];
+};
+
+// Llama al único endpoint válido del backend
+export async function getOverview(): Promise<Overview> {
+  const { data } = await fetcher.get<Overview>("/analytics/overview");
+  // Normaliza para robustez
+  return {
+    topCustomers: Array.isArray(data?.topCustomers) ? data.topCustomers : [],
+    topProducts: Array.isArray(data?.topProducts) ? data.topProducts : [],
+    trend7d: Array.isArray(data?.trend7d) ? data.trend7d : [],
+    churnRisk: Array.isArray(data?.churnRisk) ? data.churnRisk : [],
+  };
 }
 
-/** GET /analytics/trend7d -> [{ day, revenue }] */
-export function getSalesTrend7d(): Promise<SalesPoint[]> {
-  return safeGetArray<SalesPoint>('/analytics/trend7d');
+// Helpers que preservan la API previa:
+export async function getSalesTrend7d(): Promise<SalesPoint[]> {
+  const o = await getOverview();
+  return o.trend7d;
 }
 
-/** GET /analytics/top-customers?limit=N */
-export function getTopCustomers90d(limit = 5): Promise<TopCustomer[]> {
-  return safeGetArray<TopCustomer>('/analytics/top-customers', { limit });
+export async function getTopCustomers90d(limit = 5): Promise<TopCustomer[]> {
+  const o = await getOverview();
+  return o.topCustomers.slice(0, limit);
 }
 
-/** GET /analytics/top-products?limit=N */
-export function getTopProducts90d(limit = 5): Promise<TopProduct[]> {
-  return safeGetArray<TopProduct>('/analytics/top-products', { limit });
+export async function getTopProducts90d(limit = 5): Promise<TopProduct[]> {
+  const o = await getOverview();
+  return o.topProducts.slice(0, limit);
 }
 
-/** GET /analytics/churn-risk?limit=N */
-export function getChurnRisk(limit = 5): Promise<ChurnRisk[]> {
-  return safeGetArray<ChurnRisk>('/analytics/churn-risk', { limit });
+export async function getChurnRisk(limit = 5): Promise<ChurnRisk[]> {
+  const o = await getOverview();
+  return o.churnRisk.slice(0, limit);
 }
