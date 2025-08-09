@@ -7,8 +7,4 @@
  supabase
  email-validator
  python-multipart>=0.0.9
-<<<<<<< Updated upstream
  python-dotenv
-=======
- python-dotenv
->>>>>>> Stashed changes
