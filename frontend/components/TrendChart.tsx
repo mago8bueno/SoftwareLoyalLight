@@ -1,7 +1,7 @@
 // components/TrendChart.tsx
 // Componente: Gráfico de líneas de tendencias usando Recharts
 
-import React from 'react'
+import React from 'react';
 import {
   ResponsiveContainer,
   LineChart,
@@ -9,8 +9,8 @@ import {
   XAxis,
   YAxis,
   Tooltip,
-  CartesianGrid
-} from 'recharts'
+  CartesianGrid,
+} from 'recharts';
 
 // Datos de ejemplo; en real los recibirías como prop o desde un hook
 const sampleData = [
@@ -20,11 +20,11 @@ const sampleData = [
   { date: 'Thu', value: 20 },
   { date: 'Fri', value: 18 },
   { date: 'Sat', value: 22 },
-  { date: 'Sun', value: 16 }
-]
+  { date: 'Sun', value: 16 },
+];
 
 interface TrendChartProps {
-  data?: { date: string; value: number }[]
+  data?: { date: string; value: number }[];
 }
 
 const TrendChart: React.FC<TrendChartProps> = ({ data = sampleData }) => {
@@ -45,7 +45,7 @@ const TrendChart: React.FC<TrendChartProps> = ({ data = sampleData }) => {
         />
       </LineChart>
     </ResponsiveContainer>
-  )
-}
+  );
+};
 
-export default TrendChart
+export default TrendChart;

@@ -1,6 +1,6 @@
 // Layout: Composición principal
-import { Box } from '@chakra-ui/react'
-import Sidebar from './Sidebar'
+import { Box } from '@chakra-ui/react';
+import Sidebar from './Sidebar';
 
 export default function MainLayout({ children }: { children: React.ReactNode }) {
   return (
@@ -10,5 +10,5 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
         {children}
       </Box>
     </Box>
-  )
+  );
 }

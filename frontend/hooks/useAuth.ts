@@ -3,8 +3,8 @@
 // - Acceso a usuario autenticado y token
 // - Funciones signIn y signOut
 
-import { useContext } from 'react'
-import AuthContext from '@contexts/AuthContext'
+import { useContext } from 'react';
+import AuthContext from '@contexts/AuthContext';
 
 /**
  * useAuth
@@ -15,6 +15,6 @@ import AuthContext from '@contexts/AuthContext'
  * }
  */
 export function useAuth() {
-  const { auth, signIn, signOut } = useContext(AuthContext)
-  return { auth, signIn, signOut }
+  const { auth, signIn, signOut } = useContext(AuthContext);
+  return { auth, signIn, signOut };
 }

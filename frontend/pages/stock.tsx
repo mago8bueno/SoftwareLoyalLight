@@ -1,5 +1,5 @@
 // pages/stock.tsx
-import React, { useMemo, useState } from 'react'
+import React, { useMemo, useState } from 'react';
 import {
   Box,
   Heading,
@@ -31,61 +31,60 @@ import {
   IconButton,
   Spinner,
   Text,
-} from '@chakra-ui/react'
-import { AddIcon, DeleteIcon, SearchIcon } from '@chakra-ui/icons'
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import {
-  listItems,
-  createItem,
-  deleteItem,
-  uploadItemImage,
-  type Item,
-} from '@services/items'
+} from '@chakra-ui/react';
+import { AddIcon, DeleteIcon, SearchIcon } from '@chakra-ui/icons';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { listItems, createItem, deleteItem, uploadItemImage, type Item } from '@services/items';
 
 export default function StockPage() {
-  const toast = useToast()
-  const qc = useQueryClient()
+  const toast = useToast();
+  const qc = useQueryClient();
 
   // Buscar
-  const [search, setSearch] = useState('')
+  const [search, setSearch] = useState('');
 
   // Listado
-  const { data = [], isLoading, isFetching, error } = useQuery<Item[], Error>({
+  const {
+    data = [],
+    isLoading,
+    isFetching,
+    error,
+  } = useQuery<Item[], Error>({
     queryKey: ['items', search],
     queryFn: () => listItems(search || undefined),
     staleTime: 30_000,
     placeholderData: (old) => old,
-  })
+  });
 
-  const items = useMemo(() => data, [data])
+  const items = useMemo(() => data, [data]);
 
   // Crear (modal)
-  const modal = useDisclosure()
-  const [name, setName] = useState('')
-  const [price, setPrice] = useState<number | ''>('') // Chakra NumberInput friendly
-  const [stock, setStock] = useState<number | ''>('') // Chakra NumberInput friendly
-  const [imageUrl, setImageUrl] = useState('')        // URL opcional
-  const [file, setFile] = useState<File | null>(null) // archivo opcional
+  const modal = useDisclosure();
+  const [name, setName] = useState('');
+  const [price, setPrice] = useState<number | ''>(''); // Chakra NumberInput friendly
+  const [stock, setStock] = useState<number | ''>(''); // Chakra NumberInput friendly
+  const [imageUrl, setImageUrl] = useState(''); // URL opcional
+  const [file, setFile] = useState<File | null>(null); // archivo opcional
 
   const resetForm = () => {
-    setName('')
-    setPrice('')
-    setStock('')
-    setImageUrl('')
-    setFile(null)
-  }
+    setName('');
+    setPrice('');
+    setStock('');
+    setImageUrl('');
+    setFile(null);
+  };
 
   const createMut = useMutation({
     mutationFn: async () => {
       if (!name.trim()) {
-        throw new Error('El nombre es obligatorio')
+        throw new Error('El nombre es obligatorio');
       }
 
-      let finalUrl: string | undefined = imageUrl || undefined
+      let finalUrl: string | undefined = imageUrl || undefined;
       if (!finalUrl && file) {
         // ⬅️ Firma correcta: (file, optionalFilename)
-        const { image_url } = await uploadItemImage(file, file.name)
-        finalUrl = image_url
+        const { image_url } = await uploadItemImage(file, file.name);
+        finalUrl = image_url;
       }
 
       return createItem({
@@ -94,37 +93,37 @@ export default function StockPage() {
         stock: typeof stock === 'number' ? stock : 0,
         // No mandamos null; undefined si no hay imagen
         image_url: finalUrl,
-      } as Omit<Item, 'id'> & { image_url?: string })
+      } as Omit<Item, 'id'> & { image_url?: string });
     },
     onSuccess: () => {
-      toast({ title: 'Producto creado', status: 'success' })
-      resetForm()
-      modal.onClose()
-      qc.invalidateQueries({ queryKey: ['items'] })
+      toast({ title: 'Producto creado', status: 'success' });
+      resetForm();
+      modal.onClose();
+      qc.invalidateQueries({ queryKey: ['items'] });
     },
     onError: (e: any) => {
       toast({
         title: 'No se pudo crear',
         description: e?.response?.data?.detail || e?.message,
         status: 'error',
-      })
+      });
     },
-  })
+  });
 
   const delMut = useMutation({
     mutationFn: (id: Item['id']) => deleteItem(id),
     onSuccess: () => {
-      toast({ title: 'Eliminado', status: 'success' })
-      qc.invalidateQueries({ queryKey: ['items'] })
+      toast({ title: 'Eliminado', status: 'success' });
+      qc.invalidateQueries({ queryKey: ['items'] });
     },
     onError: (e: any) => {
       toast({
         title: 'No se pudo eliminar',
         description: e?.response?.data?.detail || e?.message,
         status: 'error',
-      })
+      });
     },
-  })
+  });
 
   return (
     <Box p={6}>
@@ -280,12 +279,7 @@ export default function StockPage() {
           </ModalBody>
 
           <ModalFooter>
-            <Button
-              mr={3}
-              variant="ghost"
-              onClick={modal.onClose}
-              isDisabled={createMut.isPending}
-            >
+            <Button mr={3} variant="ghost" onClick={modal.onClose} isDisabled={createMut.isPending}>
               Cancelar
             </Button>
             <Button
@@ -299,5 +293,5 @@ export default function StockPage() {
         </ModalContent>
       </Modal>
     </Box>
-  )
+  );
 }

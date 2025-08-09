@@ -1,7 +1,7 @@
 {
   "root": true,
-  "extends": ["next/core-web-vitals","plugin:@typescript-eslint/recommended","prettier"],
-  "plugins": ["@typescript-eslint","prettier"],
+  "extends": ["next/core-web-vitals", "plugin:@typescript-eslint/recommended", "prettier"],
+  "plugins": ["@typescript-eslint", "prettier"],
   "parser": "@typescript-eslint/parser",
   "parserOptions": { "ecmaVersion": 2022, "sourceType": "module" },
   "rules": {

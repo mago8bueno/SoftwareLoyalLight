@@ -1,7 +1,7 @@
 // components/Modal.tsx
 // Molecule: Modal con animación usando Chakra UI + Framer Motion
 
-import React, { ReactNode } from 'react'
+import React, { ReactNode } from 'react';
 import {
   Modal,
   ModalOverlay,
@@ -9,19 +9,19 @@ import {
   ModalHeader,
   ModalBody,
   ModalFooter,
-  ModalProps
-} from '@chakra-ui/react'
-import { motion, HTMLMotionProps } from 'framer-motion'
+  ModalProps,
+} from '@chakra-ui/react';
+import { motion, HTMLMotionProps } from 'framer-motion';
 
 // Creamos un componente animado a partir de ModalContent
 const MotionModalContent = motion<
   React.ComponentProps<typeof ModalContent> & HTMLMotionProps<'div'>
->(ModalContent)
+>(ModalContent);
 
 export interface ModalWrapperProps extends ModalProps {
-  title: string
-  footer?: ReactNode
-  children: ReactNode
+  title: string;
+  footer?: ReactNode;
+  children: ReactNode;
 }
 
 export default function ModalWrapper({
@@ -44,5 +44,5 @@ export default function ModalWrapper({
         {footer && <ModalFooter>{footer}</ModalFooter>}
       </MotionModalContent>
     </Modal>
-  )
+  );
 }

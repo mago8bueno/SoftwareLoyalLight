@@ -1,45 +1,36 @@
 // layouts/Sidebar.tsx
 // Barra lateral colapsable con navegación (Next Link) y logout.
 
-import React, { useState } from 'react'
-import NextLink from 'next/link'
-import {
-  Box,
-  VStack,
-  HStack,
-  Text,
-  Icon,
-  IconButton,
-  Link as ChakraLink,
-} from '@chakra-ui/react'
-import { motion } from 'framer-motion'
-import { useRouter } from 'next/router'
-import { FiMenu, FiHome, FiUsers, FiShoppingCart, FiBox } from 'react-icons/fi'
-import { useAuth } from '@contexts/AuthContext'
+import React, { useState } from 'react';
+import NextLink from 'next/link';
+import { Box, VStack, HStack, Text, Icon, IconButton, Link as ChakraLink } from '@chakra-ui/react';
+import { motion } from 'framer-motion';
+import { useRouter } from 'next/router';
+import { FiMenu, FiHome, FiUsers, FiShoppingCart, FiBox } from 'react-icons/fi';
+import { useAuth } from '@contexts/AuthContext';
 
 type NavItem = {
-  href: string
-  label: string
-  icon: React.ElementType
-}
+  href: string;
+  label: string;
+  icon: React.ElementType;
+};
 
 const NAV_ITEMS: NavItem[] = [
   { href: '/', label: 'Dashboard', icon: FiHome },
   { href: '/clients', label: 'Clientes', icon: FiUsers },
   { href: '/purchases', label: 'Compras', icon: FiShoppingCart },
   { href: '/stock', label: 'Stock', icon: FiBox },
-]
+];
 
 export default function Sidebar() {
-  const { auth, signOut } = useAuth()
-  const router = useRouter()
-  const [open, setOpen] = useState(true)
+  const { auth, signOut } = useAuth();
+  const router = useRouter();
+  const [open, setOpen] = useState(true);
 
   // Ancho animado con framer-motion
-  const MotionBox = motion(Box)
+  const MotionBox = motion(Box);
 
-  const userLabel =
-    (auth?.user && (auth.user.name || auth.user.email)) || 'Usuario'
+  const userLabel = (auth?.user && (auth.user.name || auth.user.email)) || 'Usuario';
 
   return (
     <MotionBox
@@ -61,12 +52,7 @@ export default function Sidebar() {
     >
       {/* Header / Toggle */}
       <HStack justify="space-between" mb={4}>
-        <Text
-          fontWeight="bold"
-          fontSize="lg"
-          noOfLines={1}
-          display={open ? 'block' : 'none'}
-        >
+        <Text fontWeight="bold" fontSize="lg" noOfLines={1} display={open ? 'block' : 'none'}>
           Fidelización
         </Text>
         <IconButton
@@ -79,15 +65,7 @@ export default function Sidebar() {
       </HStack>
 
       {/* Usuario */}
-      <Box
-        bg="gray.50"
-        border="1px solid"
-        borderColor="gray.100"
-        rounded="md"
-        px={3}
-        py={2}
-        mb={4}
-      >
+      <Box bg="gray.50" border="1px solid" borderColor="gray.100" rounded="md" px={3} py={2} mb={4}>
         <Text fontSize="sm" color="gray.500" display={open ? 'block' : 'none'}>
           Sesión
         </Text>
@@ -99,7 +77,7 @@ export default function Sidebar() {
       {/* Navegación */}
       <VStack align="stretch" spacing={1}>
         {NAV_ITEMS.map((item) => {
-          const active = router.pathname === item.href
+          const active = router.pathname === item.href;
           return (
             <ChakraLink
               as={NextLink}
@@ -116,7 +94,7 @@ export default function Sidebar() {
                 <Text display={open ? 'block' : 'none'}>{item.label}</Text>
               </HStack>
             </ChakraLink>
-          )
+          );
         })}
       </VStack>
 
@@ -138,5 +116,5 @@ export default function Sidebar() {
         </ChakraLink>
       </Box>
     </MotionBox>
-  )
+  );
 }

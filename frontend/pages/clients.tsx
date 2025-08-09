@@ -1,5 +1,5 @@
 // pages/clients.tsx
-import React, { useMemo, useState } from 'react'
+import React, { useMemo, useState } from 'react';
 import {
   Box,
   Heading,
@@ -29,22 +29,22 @@ import {
   Spinner,
   InputGroup,
   InputLeftElement,
-} from '@chakra-ui/react'
-import { AddIcon, SearchIcon } from '@chakra-ui/icons'
-import { useQuery } from '@tanstack/react-query'
-import { useClients } from '@hooks/useClients'
-import { getClientSuggestions, type ClientSuggestion, type ID } from '@services/ai'
+} from '@chakra-ui/react';
+import { AddIcon, SearchIcon } from '@chakra-ui/icons';
+import { useQuery } from '@tanstack/react-query';
+import { useClients } from '@hooks/useClients';
+import { getClientSuggestions, type ClientSuggestion, type ID } from '@services/ai';
 
 type ClientRow = {
-  id: ID
-  name: string
-  email?: string | null
-  phone?: string | null
-  churn_score?: number | null
-}
+  id: ID;
+  name: string;
+  email?: string | null;
+  phone?: string | null;
+  churn_score?: number | null;
+};
 
 export default function ClientsPage() {
-  const toast = useToast()
+  const toast = useToast();
 
   // ------- listado + crear -------
   const {
@@ -54,7 +54,7 @@ export default function ClientsPage() {
     error,
     createClient,
     isCreating,
-  } = useClients()
+  } = useClients();
 
   const clients = useMemo<ClientRow[]>(
     () =>
@@ -65,71 +65,71 @@ export default function ClientsPage() {
         phone: c.phone ?? null,
         churn_score: c.churn_score ?? null,
       })),
-    [rawClients]
-  )
+    [rawClients],
+  );
 
   // ------- búsqueda local -------
-  const [search, setSearch] = useState('')
+  const [search, setSearch] = useState('');
   const filtered = useMemo(
     () =>
       clients.filter((c) => {
-        const q = search.trim().toLowerCase()
-        if (!q) return true
-        const name = c.name?.toLowerCase?.() ?? ''
-        const email = c.email?.toLowerCase?.() ?? ''
-        const phone = c.phone?.toLowerCase?.() ?? ''
-        return name.includes(q) || email.includes(q) || phone.includes(q)
+        const q = search.trim().toLowerCase();
+        if (!q) return true;
+        const name = c.name?.toLowerCase?.() ?? '';
+        const email = c.email?.toLowerCase?.() ?? '';
+        const phone = c.phone?.toLowerCase?.() ?? '';
+        return name.includes(q) || email.includes(q) || phone.includes(q);
       }),
-    [clients, search]
-  )
+    [clients, search],
+  );
 
   // ------- modal crear -------
-  const createModal = useDisclosure()
-  const [name, setName] = useState('')
-  const [emailVal, setEmailVal] = useState('')
-  const [phone, setPhone] = useState('')
+  const createModal = useDisclosure();
+  const [name, setName] = useState('');
+  const [emailVal, setEmailVal] = useState('');
+  const [phone, setPhone] = useState('');
 
   const resetForm = () => {
-    setName('')
-    setEmailVal('')
-    setPhone('')
-  }
+    setName('');
+    setEmailVal('');
+    setPhone('');
+  };
 
   const handleCreate = async () => {
     if (!name.trim()) {
-      toast({ title: 'El nombre es obligatorio', status: 'warning' })
-      return
+      toast({ title: 'El nombre es obligatorio', status: 'warning' });
+      return;
     }
     try {
-      await createClient({ name, email: emailVal, phone } as any)
-      toast({ title: 'Cliente creado', status: 'success' })
-      resetForm()
-      createModal.onClose()
+      await createClient({ name, email: emailVal, phone } as any);
+      toast({ title: 'Cliente creado', status: 'success' });
+      resetForm();
+      createModal.onClose();
     } catch (e: any) {
       toast({
         title: 'No se pudo crear el cliente',
         description: e?.response?.data?.detail || e.message,
         status: 'error',
-      })
+      });
     }
-  }
+  };
 
   // ------- modal IA -------
-  const iaModal = useDisclosure()
-  const [selectedId, setSelectedId] = useState<ID | null>(null)
+  const iaModal = useDisclosure();
+  const [selectedId, setSelectedId] = useState<ID | null>(null);
 
   // (opcional) tenantId si lo guardas en auth.user.tenant_id
   const tenantId =
     typeof window !== 'undefined'
       ? (() => {
           try {
-            const raw = localStorage.getItem('auth')
-            return raw ? (JSON.parse(raw)?.user?.tenant_id as string | undefined) : undefined
+            const raw = localStorage.getItem('auth');
+            return raw ? (JSON.parse(raw)?.user?.tenant_id as string | undefined) : undefined;
           } catch {
-            return undefined
+            return undefined;
           }
         })()
-      : undefined
+      : undefined;
 
   const {
     data: iaData,
@@ -142,20 +142,20 @@ export default function ClientsPage() {
     queryFn: () => getClientSuggestions(selectedId as ID, tenantId ? { tenantId } : undefined),
     enabled: false, // sólo cuando abrimos
     staleTime: 30_000,
-  })
+  });
 
   const openIAModal = (id: ID) => {
-    setSelectedId(id)          // <-- NO convertir a Number
-    iaModal.onOpen()
-    setTimeout(() => refetchIA(), 0) // dispara la carga
-  }
+    setSelectedId(id); // <-- NO convertir a Number
+    iaModal.onOpen();
+    setTimeout(() => refetchIA(), 0); // dispara la carga
+  };
 
   const churnBadge = (score?: number | null) => {
-    if (score == null) return <Badge colorScheme="gray">—</Badge>
-    if (score >= 70) return <Badge colorScheme="red">{score}%</Badge>
-    if (score >= 40) return <Badge colorScheme="yellow">{score}%</Badge>
-    return <Badge colorScheme="green">{score}%</Badge>
-  }
+    if (score == null) return <Badge colorScheme="gray">—</Badge>;
+    if (score >= 70) return <Badge colorScheme="red">{score}%</Badge>;
+    if (score >= 40) return <Badge colorScheme="yellow">{score}%</Badge>;
+    return <Badge colorScheme="green">{score}%</Badge>;
+  };
 
   // ------- UI estados base -------
   if (isLoading) {
@@ -166,7 +166,7 @@ export default function ClientsPage() {
           <Text>Cargando clientes…</Text>
         </HStack>
       </Box>
-    )
+    );
   }
 
   if (error) {
@@ -174,7 +174,7 @@ export default function ClientsPage() {
       <Box p={6}>
         <Text color="red.500">Error: {(error as any).message}</Text>
       </Box>
-    )
+    );
   }
 
   return (
@@ -343,5 +343,5 @@ export default function ClientsPage() {
         </ModalContent>
       </Modal>
     </Box>
-  )
+  );
 }

@@ -1,8 +1,8 @@
 // pages/index.tsx
 // Dashboard funcional: IA recomendaciones, gráfico de tendencias y rankings
 
-import React from 'react'
-import Link from 'next/link'
+import React from 'react';
+import Link from 'next/link';
 import {
   Box,
   Button,
@@ -15,9 +15,9 @@ import {
   Alert,
   AlertIcon,
   Spinner,
-} from '@chakra-ui/react'
-import dynamic from 'next/dynamic'
-import { useQuery } from '@tanstack/react-query'
+} from '@chakra-ui/react';
+import dynamic from 'next/dynamic';
+import { useQuery } from '@tanstack/react-query';
 import {
   getSalesTrend7d,
   getTopCustomers90d,
@@ -27,10 +27,10 @@ import {
   type TopCustomer,
   type TopProduct,
   type ChurnRisk,
-} from '../services/analytics'
+} from '../services/analytics';
 
 // Carga perezosa del gráfico (lado cliente)
-const TrendChart = dynamic(() => import('../components/TrendChart'), { ssr: false })
+const TrendChart = dynamic(() => import('../components/TrendChart'), { ssr: false });
 
 export default function Dashboard() {
   // Tendencia 7 días
@@ -42,7 +42,7 @@ export default function Dashboard() {
     queryKey: ['trend7d'],
     queryFn: getSalesTrend7d,
     staleTime: 60_000,
-  })
+  });
 
   // Top clientes 90 días
   const {
@@ -53,7 +53,7 @@ export default function Dashboard() {
     queryKey: ['topCustomers90d', 5],
     queryFn: () => getTopCustomers90d(5),
     staleTime: 60_000,
-  })
+  });
 
   // Top productos 90 días
   const {
@@ -64,7 +64,7 @@ export default function Dashboard() {
     queryKey: ['topProducts90d', 5],
     queryFn: () => getTopProducts90d(5),
     staleTime: 60_000,
-  })
+  });
 
   // Riesgo de churn
   const {
@@ -75,7 +75,7 @@ export default function Dashboard() {
     queryKey: ['churnRisk', 5],
     queryFn: () => getChurnRisk(5),
     staleTime: 60_000,
-  })
+  });
 
   const chartData =
     loadingTrend || errTrend
@@ -83,7 +83,7 @@ export default function Dashboard() {
       : trend.map((p) => ({
           date: (p.day ?? '').toString().slice(5), // MM-DD
           value: Number(p.revenue ?? 0),
-        }))
+        }));
 
   return (
     <Box p={4}>
@@ -96,15 +96,23 @@ export default function Dashboard() {
         </Text>
 
         {loadingChurn ? (
-          <HStack mt={2}><Spinner size="sm" /><Text>Cargando…</Text></HStack>
+          <HStack mt={2}>
+            <Spinner size="sm" />
+            <Text>Cargando…</Text>
+          </HStack>
         ) : errChurn ? (
-          <Alert status="error" mt={2}><AlertIcon />No se pudo cargar el riesgo de churn.</Alert>
+          <Alert status="error" mt={2}>
+            <AlertIcon />
+            No se pudo cargar el riesgo de churn.
+          </Alert>
         ) : (
           <Text>Detectamos {churn.length} clientes en riesgo alto de fuga</Text>
         )}
 
         <Link href="/clients">
-          <Button mt={3} size="sm" colorScheme="blue">Ver detalles</Button>
+          <Button mt={3} size="sm" colorScheme="blue">
+            Ver detalles
+          </Button>
         </Link>
       </Box>
 
@@ -113,14 +121,22 @@ export default function Dashboard() {
         <HStack justify="space-between" mb={2}>
           <Text fontSize="lg">Tendencia semanal</Text>
           <Link href="/purchases">
-            <Button size="xs" variant="outline">Ver compras</Button>
+            <Button size="xs" variant="outline">
+              Ver compras
+            </Button>
           </Link>
         </HStack>
 
         {loadingTrend ? (
-          <HStack><Spinner size="sm" /><Text>Cargando gráfico…</Text></HStack>
+          <HStack>
+            <Spinner size="sm" />
+            <Text>Cargando gráfico…</Text>
+          </HStack>
         ) : errTrend ? (
-          <Alert status="error"><AlertIcon />No se pudo cargar la tendencia.</Alert>
+          <Alert status="error">
+            <AlertIcon />
+            No se pudo cargar la tendencia.
+          </Alert>
         ) : (
           <TrendChart data={chartData} />
         )}
@@ -133,14 +149,22 @@ export default function Dashboard() {
           <HStack justify="space-between" mb={2}>
             <Text fontWeight="bold">Clientes con más compras (90d)</Text>
             <Link href="/clients">
-              <Button size="xs" variant="outline">Ver clientes</Button>
+              <Button size="xs" variant="outline">
+                Ver clientes
+              </Button>
             </Link>
           </HStack>
 
           {loadingCustomers ? (
-            <HStack><Spinner size="sm" /><Text>Cargando…</Text></HStack>
+            <HStack>
+              <Spinner size="sm" />
+              <Text>Cargando…</Text>
+            </HStack>
           ) : errCustomers ? (
-            <Alert status="error"><AlertIcon />No se pudo cargar el ranking.</Alert>
+            <Alert status="error">
+              <AlertIcon />
+              No se pudo cargar el ranking.
+            </Alert>
           ) : topCustomers.length === 0 ? (
             <Text color="gray.500">Sin datos</Text>
           ) : (
@@ -165,14 +189,22 @@ export default function Dashboard() {
           <HStack justify="space-between" mb={2}>
             <Text fontWeight="bold">Productos más vendidos (90d)</Text>
             <Link href="/stock">
-              <Button size="xs" variant="outline">Ver stock</Button>
+              <Button size="xs" variant="outline">
+                Ver stock
+              </Button>
             </Link>
           </HStack>
 
           {loadingProducts ? (
-            <HStack><Spinner size="sm" /><Text>Cargando…</Text></HStack>
+            <HStack>
+              <Spinner size="sm" />
+              <Text>Cargando…</Text>
+            </HStack>
           ) : errProducts ? (
-            <Alert status="error"><AlertIcon />No se pudo cargar el ranking.</Alert>
+            <Alert status="error">
+              <AlertIcon />
+              No se pudo cargar el ranking.
+            </Alert>
           ) : topProducts.length === 0 ? (
             <Text color="gray.500">Sin datos</Text>
           ) : (
@@ -194,12 +226,20 @@ export default function Dashboard() {
 
         {/* Alertas / resumen churn */}
         <Box p={4} bg="white" rounded="md" shadow="sm">
-          <Text fontWeight="bold" mb={2}>Alertas de churn</Text>
+          <Text fontWeight="bold" mb={2}>
+            Alertas de churn
+          </Text>
 
           {loadingChurn ? (
-            <HStack><Spinner size="sm" /><Text>Cargando…</Text></HStack>
+            <HStack>
+              <Spinner size="sm" />
+              <Text>Cargando…</Text>
+            </HStack>
           ) : errChurn ? (
-            <Alert status="error"><AlertIcon />No se pudieron cargar las alertas.</Alert>
+            <Alert status="error">
+              <AlertIcon />
+              No se pudieron cargar las alertas.
+            </Alert>
           ) : churn.length === 0 ? (
             <Text color="gray.500">Sin clientes en riesgo</Text>
           ) : (
@@ -216,10 +256,12 @@ export default function Dashboard() {
           )}
 
           <Link href="/clients">
-            <Button mt={3} size="sm" colorScheme="blue">Gestionar</Button>
+            <Button mt={3} size="sm" colorScheme="blue">
+              Gestionar
+            </Button>
           </Link>
         </Box>
       </SimpleGrid>
     </Box>
-  )
+  );
 }

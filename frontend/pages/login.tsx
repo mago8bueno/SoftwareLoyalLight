@@ -1,5 +1,5 @@
 // pages/login.tsx
-import React, { useState, useContext, KeyboardEvent } from 'react'
+import React, { useState, useContext, KeyboardEvent } from 'react';
 import {
   Box,
   Button,
@@ -13,67 +13,64 @@ import {
   Center,
   useToast,
   HStack,
-} from '@chakra-ui/react'
-import Image from 'next/image'
-import AuthContext from '@contexts/AuthContext'
+} from '@chakra-ui/react';
+import Image from 'next/image';
+import AuthContext from '@contexts/AuthContext';
 
 export default function Login() {
-  const { signIn } = useContext(AuthContext)
-  const [email, setEmail] = useState('')
-  const [pwd, setPwd] = useState('')
-  const [submitting, setSubmitting] = useState(false)
+  const { signIn } = useContext(AuthContext);
+  const [email, setEmail] = useState('');
+  const [pwd, setPwd] = useState('');
+  const [submitting, setSubmitting] = useState(false);
 
   // errores de validación UI
-  const [emailError, setEmailError] = useState<string | null>(null)
-  const [pwdError, setPwdError] = useState<string | null>(null)
+  const [emailError, setEmailError] = useState<string | null>(null);
+  const [pwdError, setPwdError] = useState<string | null>(null);
   // error general (backend)
-  const [errorMsg, setErrorMsg] = useState<string | null>(null)
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  const toast = useToast()
+  const toast = useToast();
 
   const validate = () => {
-    let ok = true
-    setEmailError(null)
-    setPwdError(null)
-    setErrorMsg(null)
+    let ok = true;
+    setEmailError(null);
+    setPwdError(null);
+    setErrorMsg(null);
 
     if (!email) {
-      setEmailError('El email es obligatorio')
-      ok = false
+      setEmailError('El email es obligatorio');
+      ok = false;
     } else if (!/^\S+@\S+\.\S+$/.test(email)) {
-      setEmailError('Formato de email no válido')
-      ok = false
+      setEmailError('Formato de email no válido');
+      ok = false;
     }
     if (!pwd) {
-      setPwdError('La contraseña es obligatoria')
-      ok = false
+      setPwdError('La contraseña es obligatoria');
+      ok = false;
     }
-    return ok
-  }
+    return ok;
+  };
 
   const doLogin = async () => {
-    if (!validate()) return
-    setSubmitting(true)
-    setErrorMsg(null)
+    if (!validate()) return;
+    setSubmitting(true);
+    setErrorMsg(null);
     try {
-      await signIn(email, pwd) // lanza si hay error; el AuthContext redirige a '/'
+      await signIn(email, pwd); // lanza si hay error; el AuthContext redirige a '/'
       toast({
         title: 'Sesión iniciada',
         status: 'success',
         duration: 1500,
         isClosable: true,
-      })
+      });
     } catch (err: any) {
-      const status = err?.response?.status
+      const status = err?.response?.status;
       const backendMsg: string | undefined =
-        typeof err?.response?.data === 'string'
-          ? err.response.data
-          : err?.response?.data?.detail
+        typeof err?.response?.data === 'string' ? err.response.data : err?.response?.data?.detail;
 
-      if (status === 401) setErrorMsg(backendMsg || 'Credenciales inválidas.')
-      else if (status === 404)
-        setErrorMsg('Ruta /auth/login no encontrada en el backend.')
-      else setErrorMsg(backendMsg || 'No se pudo iniciar sesión. Intenta de nuevo.')
+      if (status === 401) setErrorMsg(backendMsg || 'Credenciales inválidas.');
+      else if (status === 404) setErrorMsg('Ruta /auth/login no encontrada en el backend.');
+      else setErrorMsg(backendMsg || 'No se pudo iniciar sesión. Intenta de nuevo.');
 
       toast({
         title: 'Error al iniciar sesión',
@@ -81,27 +78,19 @@ export default function Login() {
         status: 'error',
         duration: 2500,
         isClosable: true,
-      })
+      });
     } finally {
-      setSubmitting(false)
+      setSubmitting(false);
     }
-  }
+  };
 
   const onKeyDown = (e: KeyboardEvent) => {
-    if (e.key === 'Enter') doLogin()
-  }
+    if (e.key === 'Enter') doLogin();
+  };
 
   return (
     <Center minH="100vh" bg="gray.50" p={4}>
-      <Box
-        w="100%"
-        maxW="420px"
-        p={8}
-        bg="white"
-        rounded="xl"
-        boxShadow="md"
-        onKeyDown={onKeyDown}
-      >
+      <Box w="100%" maxW="420px" p={8} bg="white" rounded="xl" boxShadow="md" onKeyDown={onKeyDown}>
         <VStack spacing={6} align="stretch">
           <HStack justify="center" spacing={3}>
             {/* Logo en /public/logo.png */}
@@ -149,5 +138,5 @@ export default function Login() {
         </VStack>
       </Box>
     </Center>
-  )
+  );
 }
