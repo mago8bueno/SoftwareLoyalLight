@@ -37,6 +37,74 @@ app.mount("/media", StaticFiles(directory=MEDIA_DIR), name="media")
 # 3) CORS
 def _as_list(value) -> list[str]:
     """
+    Acepta list directa, JSON string o 'a,b,c'. (El parseo principal lo hace Settings)
+    """
+    if value is None:
+        return []
+    if isinstance(value, (list, tuple)):
+        return [str(v).strip() for v in value if str(v).strip()]
+    return [v.strip() for v in str(value).split(",") if v.strip()]
+
+allowed_origins = _as_list(getattr(settings, "ALLOWED_HOSTS", None)) or [
+    "https://software-loyal-light.vercel.app",  # prod vercel
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+]
+
+# Log para verificar en Railway
+print("[CORS] allow_origins =", allowed_origins)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=allowed_origins,
+    # Acepta también previews: https://software-loyal-light-<preview>.vercel.app
+    allow_origin_regex=r"https://software-loyal-light(?:-[\w-]+)?\.vercel\.app",
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# 4) Global errors
+register_exception_handlers(app)
+
+# 5) Routers
+app.include_router(auth_router,      prefix="/auth",      tags=["auth"])
+app.include_router(clients_router,   prefix="/clients",   tags=["clients"])
+app.include_router(items_router,     prefix="/items",     tags=["items"])
+app.include_router(purchases_router, prefix="/purchases", tags=["purchases"])
+app.include_router(analytics_router, prefix="/analytics", tags=["analytics"])
+app.include_router(ai_router,        prefix="/ai",        tags=["ai"])
+app.include_router(admin_router,     prefix="/admin",     tags=["admin"])  # seeding
+
+# 6) Health (→ barra final)
+@app.get("/health/")
+def health_check() -> dict:
+    return {"status": "ok", "version": settings.VERSION}
+
+# 7) Run local
+if __name__ == "__main__":
+    uvicorn.run(
+        "app.main:app",
+        host="0.0.0.0",
+        port=int(os.environ.get("PORT", 8000)),  # Railway inyecta PORT
+        reload=settings.DEBUG,
+    )
+
+    version=settings.VERSION,
+    docs_url="/docs" if settings.DEBUG else None,
+    redoc_url="/redoc" if settings.DEBUG else None,
+)
+
+# 2.1) Static /media
+MEDIA_DIR = os.path.join(os.getcwd(), "media")
+os.makedirs(MEDIA_DIR, exist_ok=True)
+app.mount("/media", StaticFiles(directory=MEDIA_DIR), name="media")
+
+# 3) CORS
+def _as_list(value) -> list[str]:
+    """
     Admite list directa o string con comas/espacios desde env.
     """
     if value is None:
