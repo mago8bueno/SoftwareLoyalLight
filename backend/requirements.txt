@@ -1,0 +1,9 @@
+﻿
+ fastapi
+ uvicorn[standard]
+ supabase
+ pytest
+ pydantic-settings>=0.1.0
+ supabase
+ email-validator
+

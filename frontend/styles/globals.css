@@ -1,0 +1,16 @@
+/* styles/globals.css */
+@import "tailwindcss";
+
+@layer base {
+  html, body, #__next {
+    margin: 0;
+    padding: 0;
+    height: 100%;
+    font-family: Inter, sans-serif;
+  }
+
+  a {
+    text-decoration: none;
+    color: inherit;
+  }
+}

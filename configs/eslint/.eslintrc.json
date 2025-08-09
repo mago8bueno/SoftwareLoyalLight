@@ -1,0 +1,48 @@
+// configs/eslint/.eslintrc.json
+// Propósito: Definir reglas de ESLint para el monorepo Next.js (TS/JS), ignorando código Python y archivos estáticos.
+{
+  "root": true,
+  "env": {
+    "browser": true,
+    "node": true,
+    "es2021": true
+  },
+  "ignorePatterns": [
+    "backend/**/*",
+    "scripts/**/*",
+    "tests/**/*",
+    "configs/**/*"
+  ],
+  "extends": [
+    "eslint:recommended",
+    "plugin:react/recommended",
+    "plugin:@typescript-eslint/recommended",
+    "prettier"
+  ],
+  "parser": "@typescript-eslint/parser",
+  "parserOptions": {
+    "ecmaVersion": 12,
+    "sourceType": "module",
+    "project": "./tsconfig.json"
+  },
+  "plugins": [
+    "react",
+    "@typescript-eslint",
+    "import"
+  ],
+  "settings": {
+    "react": {
+      "version": "detect"
+    }
+  },
+  "rules": {
+    "camelcase": ["error", { "properties": "always" }],
+    "react/jsx-pascal-case": "error",
+    "import/order": ["error", {
+      "groups": ["builtin", "external", "internal", "parent", "sibling", "index"],
+      "alphabetize": { "order": "asc", "caseInsensitive": true }
+    }],
+    "no-console": ["warn", { "allow": ["warn", "error"] }],
+    "@typescript-eslint/no-explicit-any": "error"
+  }
+}

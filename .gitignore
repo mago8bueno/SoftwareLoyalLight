@@ -1,0 +1,47 @@
+# .gitignore
+# Ignorar archivos generados, dependencias y datos sensibles
+
+# Entornos y cachés de Python
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+
+# Node.js / Next.js
+node_modules/
+.next/
+out/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Archivos de configuración sensibles
+.env
+.env.local
+.env.*.local
+
+# Cypress pruebas
+tests/videos/
+tests/screenshots/
+
+# Vercel & Supabase CLI
+.vercel/
+supabase/.cache/
+
+# Docker
+*.log
+docker-compose.override.yml
+docker-compose.*.yml
+
+# IDEs y sistema operativo
+.vscode/
+.idea/
+*.swp
+.DS_Store
+
+# Buenas prácticas:
+# - Cada sección agrupa un ecosistema (Python, Node, CI, Docker, IDE).
+# - Mantener .env fuera de VCS para no exponer secretos.
+# - Ajustar patrones según nuevas herramientas o carpetas del proyecto.
