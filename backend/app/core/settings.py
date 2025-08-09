@@ -5,26 +5,26 @@ from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
-    # ===== Supabase =====
+    # Supabase (obligatorias para el backend)
     SUPABASE_URL: AnyHttpUrl
     SUPABASE_KEY: str
     SUPABASE_PROJECT_REF: str
 
-    # ===== JWT =====
+    # JWT (obligatoria)
     JWT_SECRET: str
 
-    # ===== Frontend público (las usa el backend en respuestas/diagnóstico si quieres) =====
-    NEXT_PUBLIC_SUPABASE_URL: AnyHttpUrl
-    NEXT_PUBLIC_SUPABASE_KEY: str
-    NEXT_PUBLIC_OPENAI_KEY: str
+    # Frontend público (opcionales para que el backend no crashee si faltan)
+    NEXT_PUBLIC_SUPABASE_URL: Optional[AnyHttpUrl] = None
+    NEXT_PUBLIC_SUPABASE_KEY: Optional[str] = None
+    NEXT_PUBLIC_OPENAI_KEY: Optional[str] = None
 
-    # ===== Vercel (opcional para scripts) =====
+    # Vercel (opcional)
     VERCEL_TOKEN: Optional[str] = None
 
-    # ===== Admin / utilidades =====
-    SEED_TOKEN: Optional[str] = None  # <- token para endpoint de seed. Déjalo vacío tras usarlo.
+    # Semilla opcional
+    SEED_TOKEN: Optional[str] = None
 
-    # ===== App metadata =====
+    # App metadata
     PROJECT_NAME: str = "LoyaltyApp"
     VERSION: str = "1.0.0"
     PORT: int = 8000
@@ -36,9 +36,7 @@ class Settings(BaseSettings):
         env_file_encoding = "utf-8"
 
 
-# Instancia única de configuración
 settings = Settings()
 
-# (Opcional) Log básico controlado por DEBUG
-if settings.DEBUG:
-    print("DEBUG: SUPABASE_URL =", settings.SUPABASE_URL)
+# Log mínimo de diagnóstico (sin secretos)
+print("DEBUG: SUPABASE_URL =", settings.SUPABASE_URL)
