@@ -7,9 +7,7 @@ import logging
   
 router = APIRouter()  
 openai_service = OpenAIService()  
-  
 logger = logging.getLogger(__name__)  
-  
   
 @router.get(  
     "/recommendations",  
@@ -28,8 +26,6 @@ def recommendations(
 ) -> Dict[str, Any]:  
     """  
     Genera recomendaciones usando OpenAI GPT basadas en el perfil del cliente.  
-    - Si pasas client_id => recomendaciones personalizadas para ese cliente.  
-    - Si NO pasas client_id => devuelve top clientes en riesgo con recomendaciones.  
     """  
     try:  
         if client_id is not None:  
