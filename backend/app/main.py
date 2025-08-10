@@ -4,6 +4,7 @@ import uvicorn
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from fastapi.responses import JSONResponse
 
 from app.core.settings import settings
 from app.utils.logging import setup_logging
@@ -73,10 +74,14 @@ app.include_router(analytics_router, prefix="/analytics", tags=["analytics"])
 app.include_router(ai_router,        prefix="/ai",        tags=["ai"])
 app.include_router(admin_router,     prefix="/admin",     tags=["admin"])
 
-# 6) Health
-@app.get("/health/")
-def health_check() -> dict:
-    return {"status": "ok", "version": settings.VERSION}
+# 6) Health (acepta /health y /health/ con GET/HEAD/OPTIONS)
+def _health_response():
+    return JSONResponse({"status": "ok", "version": settings.VERSION})
+
+@app.api_route("/health", methods=["GET", "HEAD", "OPTIONS"])
+@app.api_route("/health/", methods=["GET", "HEAD", "OPTIONS"])
+def health_check():
+    return _health_response()
 
 # 7) Run local
 if __name__ == "__main__":
