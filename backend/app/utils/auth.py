@@ -1,37 +1,34 @@
 # backend/app/utils/auth.py
 from __future__ import annotations
 
-from fastapi import Header, HTTPException, status
+from fastapi import Depends, HTTPException
+from fastapi.security import HTTPBearer
 import jwt
 
 from app.core.settings import settings
 
-JWT_ALG = "HS256"
+security = HTTPBearer(auto_error=False)
 
 def _jwt_secret() -> str:
+    # Igual que en auth.py: usa JWT_SECRET si existe, si no SUPABASE_KEY
     return (getattr(settings, "JWT_SECRET", None) or settings.SUPABASE_KEY)
 
-
-def require_user(authorization: str | None = Header(None, alias="Authorization")) -> dict:
+def require_user(credentials=Depends(security)) -> str:
     """
-    Extrae y valida el JWT de Authorization: Bearer <token>.
-    Devuelve {id, email} del usuario autenticado.
+    Devuelve el user_id (UUID en texto) extraído del token.
+    Lanza 401 si falta/expira/es inválido.
     """
-    if not authorization or not authorization.startswith("Bearer "):
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing token")
+    if not credentials:
+        raise HTTPException(status_code=401, detail="Missing Authorization header")
 
-    token = authorization.split(" ", 1)[1].strip()
-
+    token = credentials.credentials
     try:
-        payload = jwt.decode(token, _jwt_secret(), algorithms=[JWT_ALG])
+        payload = jwt.decode(token, _jwt_secret(), algorithms=["HS256"])
+        user_id = payload.get("sub")  # 👈 en tu token el id va en "sub"
+        if not user_id:
+            raise HTTPException(status_code=401, detail="Invalid token payload")
+        return user_id
     except jwt.ExpiredSignatureError:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token expired")
+        raise HTTPException(status_code=401, detail="Token expired")
     except jwt.InvalidTokenError:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
-
-    user_id = payload.get("sub")
-    email = payload.get("email")
-    if not user_id:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
-
-    return {"id": user_id, "email": email}
+        raise HTTPException(status_code=401, detail="Invalid token")
