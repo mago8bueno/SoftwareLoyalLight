@@ -1,9 +1,9 @@
 # backend/app/api/auth.py  
 from fastapi import APIRouter, HTTPException  
 from pydantic import BaseModel  
-from passlib.context import CryptContext  
 import jwt  
 from datetime import datetime, timedelta  
+from passlib.context import CryptContext  
   
 from app.db.supabase import supabase  # cliente Supabase ya configurado  
 from app.core.settings import settings  
@@ -11,17 +11,14 @@ from app.core.settings import settings
 router = APIRouter()  
 pwd_ctx = CryptContext(schemes=["bcrypt"], deprecated="auto")  
   
-  
 class LoginIn(BaseModel):  
     email: str  
     password: str  
-  
   
 class LoginOut(BaseModel):  
     access_token: str  
     token_type: str = "bearer"  
     user: dict | None = None  
-  
   
 @router.post("/login/", response_model=LoginOut)  
 def login(payload: LoginIn):  
