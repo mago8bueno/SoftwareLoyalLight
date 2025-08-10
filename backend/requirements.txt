@@ -1,13 +1,11 @@
-﻿
- fastapi
- uvicorn[standard]
- supabase
- pytest
- pydantic-settings>=0.1.0
- supabase
- email-validator
- python-multipart>=0.0.9
- python-dotenv
- passlib[bcrypt]
- openai
- PyJWT
+fastapi
+uvicorn[standard]
+supabase
+httpx
+pydantic-settings>=0.1.0
+email-validator
+python-multipart>=0.0.9
+python-dotenv
+passlib[bcrypt]
+openai
+PyJWT
