@@ -41,19 +41,22 @@ if (isBrowser) {
 fetcher.interceptors.request.use((config: InternalAxiosRequestConfig) => {
   if (!config.headers) config.headers = new AxiosHeaders();
 
-  // Bearer desde localStorage si existe
+  // Bearer + multi-tenant header desde localStorage si existe
   if (isBrowser) {
     try {
       const rawAuth = localStorage.getItem("auth");
       if (rawAuth) {
-        const { token, userId } = JSON.parse(rawAuth) as { token?: string; userId?: string };
+        const parsed = JSON.parse(rawAuth);
+        const token: string | undefined = parsed?.token ?? parsed?.access_token;
+        const userId: string | undefined =
+          parsed?.userId ?? parsed?.user?.id; // soporta ambos formatos
 
         if (token) (config.headers as AxiosHeaders).set("Authorization", `Bearer ${token}`);
-
-        // 👉 clave para multi-tenant: enviamos el dueño en cada request
         if (userId) (config.headers as AxiosHeaders).set("X-User-Id", userId);
       }
-    } catch { /* no-op */ }
+    } catch {
+      /* no-op */
+    }
   }
   return config;
 });
