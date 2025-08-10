@@ -55,7 +55,6 @@ print("[CORS] allow_origins =", allowed_origins)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=allowed_origins,
-    # Acepta también dominios de preview de Vercel:
     allow_origin_regex=r"https://software-loyal-light(?:-[\w-]+)?\.vercel\.app",
     allow_credentials=True,
     allow_methods=["*"],
@@ -83,11 +82,12 @@ def _health_response():
 def health_check():
     return _health_response()
 
-# 7) Run local
+# 7) Run local o en contenedor
 if __name__ == "__main__":
+    port = int(os.environ.get("PORT", 8080))  # ahora por defecto 8080
     uvicorn.run(
         "app.main:app",
         host="0.0.0.0",
-        port=int(os.environ.get("PORT", 8000)),  # Railway inyecta PORT
+        port=port,
         reload=settings.DEBUG,
     )
