@@ -26,10 +26,12 @@ def recommendations(
 ) -> Dict[str, Any]:  
     """  
     Genera recomendaciones usando OpenAI GPT basadas en el perfil del cliente.  
+    - Si pasas client_id => recomendaciones personalizadas para ese cliente.  
+    - Si NO pasas client_id => devuelve top clientes en riesgo con recomendaciones.  
     """  
     try:  
         if client_id is not None:  
-            # Obtener datos del cliente  
+            # Obtener datos del cliente desde v_churn_risk  
             q = supabase.table("v_churn_risk").select("*").eq("client_id", client_id).limit(1)  
             if tenant_id:  
                 q = q.eq("tenant_id", tenant_id)  
@@ -40,7 +42,7 @@ def recommendations(
   
             client_data = res.data[0]  
               
-            # Obtener historial de compras  
+            # Obtener historial de compras con items  
             purchases_q = (  
                 supabase.table("purchases")  
                 .select("*, items(*)")  
@@ -168,6 +170,13 @@ def client_suggestions(
         else:  
             days_since_last = 999  
   
+        # Obtener churn score desde v_churn_risk  
+        churn_q = supabase.table("v_churn_risk").select("churn_score").eq("client_id", client_id).limit(1)  
+        churn_res = churn_q.execute()  
+        churn_score = 0  
+        if churn_res.data:  
+            churn_score = int(churn_res.data[0].get("churn_score", 0))  
+  
         # Generar sugerencias con IA  
         ai_suggestions = openai_service.generate_client_suggestions(  
             client_data, purchase_history, days_since_last  
@@ -175,6 +184,7 @@ def client_suggestions(
   
         return {  
             "client_id": client_id,  
+            "churn_score": churn_score,  
             "last_purchase_days": days_since_last,  
             "total_purchases": len(purchase_history),  
             "suggestions": ai_suggestions,  
