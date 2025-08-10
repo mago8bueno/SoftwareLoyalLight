@@ -5,10 +5,10 @@ import os
 import time
 from typing import List, Optional
 
-from fastapi import APIRouter, HTTPException, Query, UploadFile, File
+from fastapi import APIRouter, HTTPException, Query, UploadFile, File, Header, Depends
 from pydantic import BaseModel, Field
 
-from app.db.supabase import supabase  # tu instancia existente
+from app.db.supabase import supabase
 
 router = APIRouter()
 
@@ -24,8 +24,12 @@ class ItemOut(ItemIn):
 
 # ---------- Helpers ----------
 def _like(value: str) -> str:
-    # Para búsquedas case-insensitive si tu vista/tabla lo soporta
     return f"%{value.strip()}%"
+
+def get_owner_id(x_user_id: Optional[str] = Header(None, convert_underscores=False)) -> str:
+    if not x_user_id:
+        raise HTTPException(status_code=401, detail="Missing X-User-Id header")
+    return x_user_id
 
 MEDIA_ROOT = os.path.join(os.getcwd(), "media")
 ITEMS_DIR = os.path.join(MEDIA_ROOT, "items")
@@ -33,44 +37,48 @@ os.makedirs(ITEMS_DIR, exist_ok=True)
 
 # ---------- Endpoints ----------
 @router.get("/", response_model=List[ItemOut])
-def list_items(q: Optional[str] = Query(None, description="Búsqueda por nombre")):
+def list_items(
+    q: Optional[str] = Query(None, description="Búsqueda por nombre"),
+    owner_id: str = Depends(get_owner_id),
+):
     """
-    Lista de items. Si hay cualquier problema con Supabase,
-    devolvemos [] y lo dejamos logeado para no romper el frontend.
+    Lista SOLO los items del owner. Si hay error con Supabase, devolvemos [].
     """
     try:
-        query = supabase.table("items").select("*")
+        query = supabase.table("items").select("*").eq("owner_id", owner_id)
         if q:
-            # Si tu PostgREST / Supabase no soporta ilike aquí, puedes quitar esta línea.
-            # Alternativa: traer todos y filtrar en Python.
             query = query.ilike("name", _like(q))
-        # Orden alfabético por comodidad
         res = query.order("name", desc=False).execute()
         rows = res.data or []
-        # Normalización mínima por seguridad
+
         out: List[ItemOut] = []
         for r in rows:
-            out.append(ItemOut(
-                id=int(r["id"]),
-                name=r.get("name") or "",
-                price=float(r.get("price") or 0),
-                stock=int(r.get("stock") or 0),
-                image_url=r.get("image_url"),
-            ))
+            out.append(
+                ItemOut(
+                    id=int(r["id"]),
+                    name=r.get("name") or "",
+                    price=float(r.get("price") or 0),
+                    stock=int(r.get("stock") or 0),
+                    image_url=r.get("image_url"),
+                )
+            )
         return out
     except Exception as e:
         print("[/items] list_items ERROR:", repr(e))
-        # Modo “tolerante” para que el frontend no muera si hay RLS/columnas/etc.
         return []
 
 @router.post("/", response_model=ItemOut, status_code=201)
-def create_item(payload: ItemIn):
+def create_item(payload: ItemIn, owner_id: str = Depends(get_owner_id)):
+    """
+    Crea item para el owner actual; fuerza owner_id del lado servidor.
+    """
     try:
         data = {
             "name": payload.name,
             "price": float(payload.price or 0),
             "stock": int(payload.stock or 0),
             "image_url": payload.image_url or None,
+            "owner_id": owner_id,  # <- clave
         }
         res = supabase.table("items").insert(data).select("*").single().execute()
         if not res.data:
@@ -90,9 +98,12 @@ def create_item(payload: ItemIn):
         raise HTTPException(status_code=500, detail="No se pudo crear el item")
 
 @router.delete("/{item_id}", status_code=204)
-def delete_item(item_id: int):
+def delete_item(item_id: int, owner_id: str = Depends(get_owner_id)):
+    """
+    Elimina SOLO si pertenece al owner.
+    """
     try:
-        supabase.table("items").delete().eq("id", item_id).execute()
+        supabase.table("items").delete().eq("id", item_id).eq("owner_id", owner_id).execute()
         return
     except Exception as e:
         print("[/items] delete_item ERROR:", repr(e))
@@ -102,11 +113,8 @@ def delete_item(item_id: int):
 async def upload_item_image(file: UploadFile = File(...)):
     """
     Guarda el archivo en ./media/items y devuelve {"image_url": "/media/items/<archivo>"}.
-    Asegúrate de que en main.py montaste:
-        app.mount("/media", StaticFiles(directory="media"), name="media")
     """
     try:
-        # Nombre seguro (timestamp + nombre original)
         ts = int(time.time())
         safe_name = f"{ts}_{os.path.basename(file.filename)}".replace(" ", "_")
         disk_path = os.path.join(ITEMS_DIR, safe_name)
