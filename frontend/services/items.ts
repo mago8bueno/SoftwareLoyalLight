@@ -2,7 +2,7 @@
 import { fetcher } from "./fetcher";
 
 export type Item = {
-  id: number;
+  id: string; // IDs devueltos por Supabase son UUID
   name: string;
   price: number;
   stock: number;
@@ -24,7 +24,7 @@ export async function createItem(
 }
 
 // ⬇️ FIX: sin barra final
-export async function deleteItem(id: number | string): Promise<void> {
+export async function deleteItem(id: string): Promise<void> {
   await fetcher.delete(`/items/${id}`);
 }
 
