@@ -1,4 +1,4 @@
-﻿# backend/app/api/items.py
+# backend/app/api/items.py
 from __future__ import annotations
 
 import os
@@ -21,7 +21,7 @@ class ItemIn(BaseModel):
     image_url: Optional[str] = None
 
 class ItemOut(ItemIn):
-    id: int
+    id: str
 
 # ---------- Helpers ----------
 def _like(value: str) -> str:
@@ -54,7 +54,7 @@ def list_items(
         for r in rows:
             out.append(
                 ItemOut(
-                    id=int(r["id"]),
+                    id=str(r.get("id")),
                     name=r.get("name") or "",
                     price=float(r.get("price") or 0),
                     stock=int(r.get("stock") or 0),
@@ -66,7 +66,6 @@ def list_items(
     except Exception as e:
         print("[/items] list_items ERROR:", repr(e))
         return []
-
 
 @router.post("/", response_model=ItemOut, status_code=201)
 def create_item(
@@ -84,12 +83,18 @@ def create_item(
             "image_url": payload.image_url or None,
             "owner_id": user_id,  # ← clave multi-tenant
         }
-        res = supabase.table("items").insert(data).select("*").single().execute()
+        res = supabase.table("items").insert(data).execute()
+
+        if getattr(res, "error", None):
+            detail = getattr(res.error, "message", str(res.error))
+            raise HTTPException(status_code=400, detail=detail)
+
         if not res.data:
             raise HTTPException(status_code=400, detail="No se pudo crear el item")
-        r = res.data
+
+        r = res.data[0]
         return ItemOut(
-            id=int(r["id"]),
+            id=str(r.get("id")),
             name=r.get("name") or "",
             price=float(r.get("price") or 0),
             stock=int(r.get("stock") or 0),
@@ -99,24 +104,30 @@ def create_item(
         raise
     except Exception as e:
         print("[/items] create_item ERROR:", repr(e))
-        raise HTTPException(status_code=500, detail="No se pudo crear el item")
-
+        raise HTTPException(status_code=500, detail=f"Error interno: {e}")
 
 @router.delete("/{item_id}", status_code=204)
 def delete_item(
-    item_id: int,
+    item_id: str,
     user_id: str = Depends(require_user),
 ):
     """
     Elimina SOLO si el item pertenece al owner actual.
     """
     try:
-        supabase.table("items").delete().eq("id", item_id).eq("owner_id", user_id).execute()
+        res = (
+            supabase.table("items").delete().eq("id", item_id).eq("owner_id", user_id).execute()
+        )
+
+        if getattr(res, "error", None):
+            detail = getattr(res.error, "message", str(res.error))
+            raise HTTPException(status_code=400, detail=detail)
         return  # 204 No Content
+    except HTTPException:
+        raise
     except Exception as e:
         print("[/items] delete_item ERROR:", repr(e))
-        raise HTTPException(status_code=500, detail="No se pudo borrar el item")
-
+        raise HTTPException(status_code=500, detail=f"Error interno: {e}")
 
 @router.post("/upload-image/", summary="Sube una imagen y devuelve su URL pública")
 async def upload_item_image(
