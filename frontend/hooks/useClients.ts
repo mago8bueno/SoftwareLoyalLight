@@ -40,12 +40,12 @@ export function useClients(search: string = '') {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: KEY(debounced) }),
   });
 
-  const updateMutation = useMutation<Client, Error, { id: number; data: Partial<ClientCreate> }>({
+  const updateMutation = useMutation<Client, Error, { id: string; data: Partial<ClientCreate> }>({
     mutationFn: ({ id, data }) => apiUpdateClient(id, data),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: KEY(debounced) }),
   });
 
-  const deleteMutation = useMutation<void, Error, number>({
+  const deleteMutation = useMutation<void, Error, string>({
     mutationFn: (id) => apiDeleteClient(id),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: KEY(debounced) }),
   });
