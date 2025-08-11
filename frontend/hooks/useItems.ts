@@ -1,15 +1,11 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { getItems, createItem } from '../services/items';
-import type { Item } from '../types';
+import { listItems, createItem, type Item } from '@services/items';
 
 export function useItems() {
   const queryClient = useQueryClient();
   const query = useQuery<Item[]>({
     queryKey: ['items'],
-    queryFn: async () => {
-      const response = await getItems();
-      return response.data;
-    },
+    queryFn: () => listItems(),
   });
   const mutation = useMutation({
     mutationFn: createItem,
