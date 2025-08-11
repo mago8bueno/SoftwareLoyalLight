@@ -101,7 +101,12 @@ export default function ClientsPage() {
       return;
     }
     try {
-      await createClient({ name, email: emailVal, phone } as any);
+      const body = {
+        name,
+        email: emailVal.trim() ? emailVal : undefined,
+        phone: phone.trim() ? phone : undefined,
+      };
+      await createClient(body as any);
       toast({ title: 'Cliente creado', status: 'success' });
       resetForm();
       createModal.onClose();
