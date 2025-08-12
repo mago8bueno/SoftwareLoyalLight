@@ -52,12 +52,15 @@ def list_items(
 
         out: List[ItemOut] = []
         for r in rows:
+            stock_val = r.get("stock")
+            if stock_val is None:
+                stock_val = r.get("quantity")
             out.append(
                 ItemOut(
                     id=str(r.get("id")),
                     name=r.get("name") or "",
                     price=float(r.get("price") or 0),
-                    stock=int(r.get("stock") or 0),
+                    stock=int(stock_val or 0),
                     image_url=r.get("image_url"),
                 )
             )
@@ -79,11 +82,22 @@ def create_item(
         data = {
             "name": payload.name,
             "price": float(payload.price or 0),
-            "stock": int(payload.stock or 0),
             "image_url": payload.image_url or None,
             "owner_id": user_id,  # ← clave multi-tenant
         }
-        res = supabase.table("items").insert(data).execute()
+        if payload.stock is not None:
+            data["stock"] = int(payload.stock)
+
+        try:
+            res = supabase.table("items").insert(data).execute()
+        except Exception as e:
+            # Si la columna stock no existe, reintentamos sin ella
+            msg = str(e)
+            if "PGRST204" in msg and "stock" in msg:
+                data.pop("stock", None)
+                res = supabase.table("items").insert(data).execute()
+            else:
+                raise HTTPException(status_code=400, detail=msg)
 
         if getattr(res, "error", None):
             detail = getattr(res.error, "message", str(res.error))
@@ -93,18 +107,22 @@ def create_item(
             raise HTTPException(status_code=400, detail="No se pudo crear el item")
 
         r = res.data[0]
+        stock_val = r.get("stock")
+        if stock_val is None:
+            stock_val = r.get("quantity")
         return ItemOut(
             id=str(r.get("id")),
             name=r.get("name") or "",
             price=float(r.get("price") or 0),
-            stock=int(r.get("stock") or 0),
+            stock=int(stock_val or 0),
             image_url=r.get("image_url"),
         )
     except HTTPException:
         raise
     except Exception as e:
         print("[/items] create_item ERROR:", repr(e))
-        raise HTTPException(status_code=500, detail=f"Error interno: {e}")
+        detail = getattr(e, "message", None) or (e.args[0] if e.args else str(e))
+        raise HTTPException(status_code=400, detail=detail)
 
 @router.delete("/{item_id}", status_code=204)
 def delete_item(
