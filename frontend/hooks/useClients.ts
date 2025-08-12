@@ -12,6 +12,7 @@ import {
 
 const KEY = (q: string) => ['clients', q] as const;
 
+// Pequeño hook de debounce sin dependencias
 function useDebounce<T>(value: T, delay = 350) {
   const [debounced, setDebounced] = useState(value);
   useEffect(() => {
@@ -29,6 +30,7 @@ export function useClients(search: string = '') {
     queryKey: KEY(debounced),
     queryFn: () => getClients(debounced || undefined),
     staleTime: 30_000,
+    // v5: en vez de keepPreviousData, usa placeholderData para mostrar lo anterior
     placeholderData: (prev) => prev,
     refetchOnWindowFocus: false,
   });
