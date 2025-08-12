@@ -1,10 +1,11 @@
+# backend/app/api/clients.py
 from __future__ import annotations
 
 from typing import Optional
 from fastapi import APIRouter, Query, HTTPException, Depends
 from app.db.supabase import supabase
 from app.utils.auth import require_user
-from app.models.client import ClientCreate, ClientOut
+from app.models.client import ClientCreate, ClientOut  # ← Añadir importación
 
 router = APIRouter()
 
@@ -33,17 +34,20 @@ def list_clients(
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+# ← CORREGIDO: Usar ClientCreate para validación
 @router.post("/", response_model=dict, status_code=201)
 def create_client(payload: ClientCreate, user_id: str = Depends(require_user)):
     """
     Crea un cliente para el owner actual; fuerza owner_id en servidor.
     """
     try:
+        # Convertir a dict y añadir owner_id
         data = payload.model_dump()
         data["owner_id"] = user_id
 
         res = supabase.table("clients").insert(data).execute()
 
+        # Propagar errores específicos de Supabase si existen
         if getattr(res, "error", None):
             detail = getattr(res.error, "message", str(res.error))
             raise HTTPException(status_code=400, detail=detail)
@@ -51,13 +55,14 @@ def create_client(payload: ClientCreate, user_id: str = Depends(require_user)):
         if not res.data:
             raise HTTPException(status_code=400, detail="No se pudo crear el cliente")
 
+        # insert retorna lista; devolvemos el primer elemento
         return res.data[0]
     except HTTPException:
         raise
     except Exception as e:
-        detail = getattr(e, "message", None) or (e.args[0] if e.args else str(e))
-        print(f"[ERROR] create_client: {detail}")
-        raise HTTPException(status_code=400, detail=detail)
+        # Mejor logging del error específico
+        print(f"[ERROR] create_client: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error interno: {str(e)}")
 
 @router.put("/{client_id}", response_model=dict)
 def update_client(client_id: str, payload: dict, user_id: str = Depends(require_user)):
