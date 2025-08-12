@@ -11,6 +11,7 @@ import {
   Td,
   Badge,
   Button,
+  IconButton,
   HStack,
   Text,
   useDisclosure,
@@ -45,6 +46,7 @@ type ClientRow = {
 export default function ClientsPage() {
   const toast = useToast();
 
+  // ------- listado + crear -------
   const {
     data: rawClients = [],
     isLoading,
@@ -66,6 +68,7 @@ export default function ClientsPage() {
     [rawClients],
   );
 
+  // ------- búsqueda local -------
   const [search, setSearch] = useState('');
   const filtered = useMemo(
     () =>
@@ -80,6 +83,7 @@ export default function ClientsPage() {
     [clients, search],
   );
 
+  // ------- modal crear -------
   const createModal = useDisclosure();
   const [name, setName] = useState('');
   const [emailVal, setEmailVal] = useState('');
@@ -115,6 +119,7 @@ export default function ClientsPage() {
     }
   };
 
+  // ------- modal IA -------
   const iaModal = useDisclosure();
   const [selectedId, setSelectedId] = useState<ID | null>(null);
 
@@ -156,6 +161,7 @@ export default function ClientsPage() {
     return <Badge colorScheme="green">{score}%</Badge>;
   };
 
+  // ------- UI estados base -------
   if (isLoading) {
     return (
       <Box p={6}>
@@ -244,6 +250,7 @@ export default function ClientsPage() {
         </Table>
       </Box>
 
+      {/* Modal: Añadir cliente */}
       <Modal
         isOpen={createModal.isOpen}
         onClose={() => !isCreating && createModal.onClose()}
@@ -287,6 +294,7 @@ export default function ClientsPage() {
         </ModalContent>
       </Modal>
 
+      {/* Modal: IA sugerencias */}
       <Modal isOpen={iaModal.isOpen} onClose={iaModal.onClose} isCentered size="lg">
         <ModalOverlay />
         <ModalContent>
@@ -318,19 +326,11 @@ export default function ClientsPage() {
                   <Text fontWeight="bold" mb={1}>
                     Sugerencias:
                   </Text>
-                  {(() => {
-                    const valid = iaData.suggestions.filter(
-                      (s) => s.description && s.description.trim() !== ''
-                    );
-                    if (valid.length === 0) {
-                      return <Text color="gray.500">Sin sugerencias.</Text>;
-                    }
-                    return valid.map((s, idx) => (
-                      <Text key={idx} mb={1}>
-                        • {s.title ? `${s.title}: ` : ''}{s.description}
-                      </Text>
-                    ));
-                  })()}
+                  {iaData.suggestions.map((s, idx) => (
+                    <Text key={idx} mb={1}>
+                      • {s.title ? `${s.title}: ` : ''}{s.description}
+                    </Text>
+                  ))}
                   {iaData.top_item_id && (
                     <Text mt={2} color="gray.600">
                       Producto más frecuente: #{String(iaData.top_item_id)}
