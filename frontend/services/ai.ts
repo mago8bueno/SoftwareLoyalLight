@@ -1,22 +1,24 @@
 // services/ai.ts
 import { fetcher } from './fetcher';
 
-/** Soportar IDs numéricos o string (UUID) */
 export type ID = string | number;
+
+export type AISuggestion = {
+  type: string;
+  title?: string;
+  description: string;
+  priority?: string;
+  expected_impact?: string;
+};
 
 export type ClientSuggestion = {
   client_id: ID;
   churn_score: number;
   last_purchase_days: number;
   top_item_id: number | string | null;
-  suggestions: { type: string; text: string }[];
+  suggestions: AISuggestion[];
 };
 
-/**
- * Sugerencias por cliente.
- * - clientId puede ser number o string (UUID)
- * - tenantId opcional por si filtras por tenant en el backend
- */
 export async function getClientSuggestions(
   clientId: ID,
   opts?: { tenantId?: string },
@@ -28,18 +30,11 @@ export async function getClientSuggestions(
   return data;
 }
 
-/** -------- Opcional: listado de clientes en riesgo con recomendaciones ---------- */
-
 export type AIItem = {
   client: { id: ID; name?: string; email?: string; churn_score: number };
-  recommendations: { type: string; text: string }[];
+  recommendations: AISuggestion[];
 };
 
-/**
- * Top clientes en riesgo (reglas simples).
- * - Si pasas clientId, devuelve solo ese cliente.
- * - tenantId opcional.
- */
 export async function getRecommendations(params?: {
   limit?: number;
   clientId?: ID;
@@ -57,6 +52,5 @@ export async function getRecommendations(params?: {
     },
   });
 
-  // El backend devuelve { items: [...] } o { client, recommendations } si pasas client_id
   return data;
 }
