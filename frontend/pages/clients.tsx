@@ -1,10 +1,34 @@
 // pages/clients.tsx
 import React, { useMemo, useState } from 'react';
 import {
-  Box, Heading, Table, Thead, Tbody, Tr, Th, Td, Badge, Button,
-  HStack, Text, useDisclosure, useToast, Modal, ModalOverlay, ModalContent,
-  ModalHeader, ModalBody, ModalFooter, ModalCloseButton, FormControl,
-  FormLabel, Input, Spinner, InputGroup, InputLeftElement,
+  Box,
+  Heading,
+  Table,
+  Thead,
+  Tbody,
+  Tr,
+  Th,
+  Td,
+  Badge,
+  Button,
+  IconButton,
+  HStack,
+  Text,
+  useDisclosure,
+  useToast,
+  Modal,
+  ModalOverlay,
+  ModalContent,
+  ModalHeader,
+  ModalBody,
+  ModalFooter,
+  ModalCloseButton,
+  FormControl,
+  FormLabel,
+  Input,
+  Spinner,
+  InputGroup,
+  InputLeftElement,
 } from '@chakra-ui/react';
 import { AddIcon, SearchIcon } from '@chakra-ui/icons';
 import { useQuery } from '@tanstack/react-query';
@@ -22,6 +46,7 @@ type ClientRow = {
 export default function ClientsPage() {
   const toast = useToast();
 
+  // ------- listado + crear -------
   const {
     data: rawClients = [],
     isLoading,
@@ -43,6 +68,7 @@ export default function ClientsPage() {
     [rawClients],
   );
 
+  // ------- búsqueda local -------
   const [search, setSearch] = useState('');
   const filtered = useMemo(
     () =>
@@ -57,6 +83,7 @@ export default function ClientsPage() {
     [clients, search],
   );
 
+  // ------- modal crear -------
   const createModal = useDisclosure();
   const [name, setName] = useState('');
   const [emailVal, setEmailVal] = useState('');
@@ -92,9 +119,11 @@ export default function ClientsPage() {
     }
   };
 
+  // ------- modal IA -------
   const iaModal = useDisclosure();
   const [selectedId, setSelectedId] = useState<ID | null>(null);
 
+  // (opcional) tenantId si lo guardas en auth.user.tenant_id
   const tenantId =
     typeof window !== 'undefined'
       ? (() => {
@@ -116,14 +145,14 @@ export default function ClientsPage() {
   } = useQuery<ClientSuggestion, Error>({
     queryKey: ['ai-suggestions', selectedId, tenantId],
     queryFn: () => getClientSuggestions(selectedId as ID, tenantId ? { tenantId } : undefined),
-    enabled: false,
+    enabled: false, // sólo cuando abrimos
     staleTime: 30_000,
   });
 
   const openIAModal = (id: ID) => {
-    setSelectedId(id);
+    setSelectedId(id); // <-- NO convertir a Number
     iaModal.onOpen();
-    setTimeout(() => refetchIA(), 0);
+    setTimeout(() => refetchIA(), 0); // dispara la carga
   };
 
   const churnBadge = (score?: number | null) => {
@@ -133,6 +162,7 @@ export default function ClientsPage() {
     return <Badge colorScheme="green">{score}%</Badge>;
   };
 
+  // ------- UI estados base -------
   if (isLoading) {
     return (
       <Box p={6}>
@@ -221,6 +251,7 @@ export default function ClientsPage() {
         </Table>
       </Box>
 
+      {/* Modal: Añadir cliente */}
       <Modal
         isOpen={createModal.isOpen}
         onClose={() => !isCreating && createModal.onClose()}
@@ -264,6 +295,7 @@ export default function ClientsPage() {
         </ModalContent>
       </Modal>
 
+      {/* Modal: IA sugerencias */}
       <Modal isOpen={iaModal.isOpen} onClose={iaModal.onClose} isCentered size="lg">
         <ModalOverlay />
         <ModalContent>
@@ -285,7 +317,8 @@ export default function ClientsPage() {
               <Box>
                 <HStack justify="space-between" mb={2}>
                   <Text>
-                    Cliente #{String(iaData.client_id)} — Última compra hace {iaData.last_purchase_days} días
+                    Cliente #{String(iaData.client_id)} — Última compra hace{' '}
+                    {iaData.last_purchase_days} días
                   </Text>
                   <Badge colorScheme={iaData.churn_score >= 70 ? 'red' : 'yellow'}>
                     Churn {iaData.churn_score}%
@@ -297,7 +330,7 @@ export default function ClientsPage() {
                   </Text>
                   {iaData.suggestions.map((s, idx) => (
                     <Text key={idx} mb={1}>
-                      • {s.title ? `${s.title}: ` : ''}{s.description}
+                      • {s.text}
                     </Text>
                   ))}
                   {iaData.top_item_id && (
