@@ -1,4 +1,4 @@
-// services/ai.ts
+// frontend/services/ai.ts
 import { fetcher } from './fetcher';
 
 export type ID = string | number;
@@ -6,7 +6,7 @@ export type ID = string | number;
 export type AISuggestion = {
   type: string;
   title?: string;
-  description: string;
+  description: string;          // mandatory
   priority?: string;
   expected_impact?: string;
 };
@@ -16,7 +16,7 @@ export type ClientSuggestion = {
   churn_score: number;
   last_purchase_days: number;
   top_item_id: number | string | null;
-  suggestions: AISuggestion[];
+  suggestions: AISuggestion[];  // use strong type
 };
 
 export async function getClientSuggestions(
