@@ -309,7 +309,9 @@ export default function ClientsPage() {
             )}
             {iaError && (
               <Text color="red.500">
-                {(iaErrObj as any)?.message || 'No se pudieron obtener las sugerencias'}
+                {(iaErrObj as any)?.response?.data?.detail ||
+                  iaErrObj.message ||
+                  'No se pudieron obtener las sugerencias'}
               </Text>
             )}
             {!iaLoading && !iaError && iaData && (
