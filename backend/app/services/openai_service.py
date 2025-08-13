@@ -139,7 +139,23 @@ Responde SOLO con un JSON válido:
             suggestions_text = response.choices[0].message.content.strip()
             suggestions = json.loads(suggestions_text)
 
-            return suggestions
+            cleaned_suggestions = []
+            for suggestion in suggestions:
+                corrected = False
+                if "title" not in suggestion and "text" in suggestion:
+                    suggestion["title"] = suggestion.pop("text")
+                    corrected = True
+                if "description" not in suggestion and "reason" in suggestion:
+                    suggestion["description"] = suggestion.pop("reason")
+                    corrected = True
+                if "title" in suggestion and "description" in suggestion:
+                    if corrected:
+                        logger.warning(f"Corrected suggestion keys: {suggestion}")
+                    cleaned_suggestions.append(suggestion)
+                else:
+                    logger.warning(f"Discarding invalid suggestion: {suggestion}")
+
+            return cleaned_suggestions
 
         except Exception as e:
             logger.error(f"Error generating suggestions with OpenAI: {e}")
