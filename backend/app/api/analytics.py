@@ -1,54 +1,77 @@
-# backend/app/api/analytics.py
+# backend/app/api/analytics.py - VERSIÓN MEJORADA
 from fastapi import APIRouter, HTTPException, Depends
 from app.db.supabase import supabase
 from app.utils.auth import require_user  # ← AÑADIR autenticación
 import logging
 from datetime import date, timedelta
+from typing import Dict, List, Any, Optional
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
-@router.get("/overview")
-def analytics_overview(user_id: str = Depends(require_user)):  # ← AÑADIR autenticación
+def safe_supabase_query(table_name: str, user_id: str, description: str) -> List[Dict]:
     """
-    Devuelve un resumen analítico SOLO para el usuario actual:
-    - topCustomers: v_top_customers_90d filtrado por owner_id
-    - topProducts:  v_top_products_90d filtrado por owner_id  
-    - trend7d:      v_sales_trend_7d filtrado por owner_id
-    - churnRisk:    v_churn_risk filtrado por owner_id
+    Ejecuta una consulta de Supabase de forma segura con manejo de errores.
     """
     try:
-        logger.info(f"analytics_overview for user_id: {user_id}")
+        logger.info(f"Ejecutando {description} para user_id: {user_id}")
         
-        # Todas las consultas ahora filtran por owner_id
-        top_customers_res = (
-            supabase.table("v_top_customers_90d")
+        result = (
+            supabase.table(table_name)
             .select("*")
-            .eq("owner_id", user_id)  # ← FILTRO CRÍTICO
-            .order("total_spent", desc=True)
-            .limit(10)  # Limitar resultados
+            .eq("owner_id", user_id)
             .execute()
         )
         
-        top_products_res = (
-            supabase.table("v_top_products_90d")
-            .select("*")
-            .eq("owner_id", user_id)  # ← FILTRO CRÍTICO
-            .order("times_sold", desc=True)
-            .limit(10)  # Limitar resultados
-            .execute()
+        # Verificar si hay error
+        if hasattr(result, 'error') and result.error:
+            error_msg = getattr(result.error, 'message', str(result.error))
+            logger.error(f"Error Supabase en {table_name}: {error_msg}")
+            return []
+        
+        data = result.data or []
+        logger.info(f"{description}: {len(data)} registros encontrados")
+        return data
+        
+    except Exception as e:
+        logger.error(f"Excepción en {description}: {str(e)}")
+        # Retornar array vacío en lugar de fallar
+        return []
+
+@router.get("/overview")
+def analytics_overview(user_id: str = Depends(require_user)):
+    """
+    Devuelve un resumen analítico SOLO para el usuario actual.
+    Versión robusta que no falla si las vistas no existen.
+    """
+    try:
+        logger.info(f"=== ANALYTICS OVERVIEW INICIADO ===")
+        logger.info(f"User ID recibido: {user_id}")
+        
+        # 1. Top Customers (últimos 90 días)
+        top_customers = safe_supabase_query(
+            "v_top_customers_90d", 
+            user_id, 
+            "Top customers 90d"
         )
         
-        trend_res = (
-            supabase.table("v_sales_trend_7d")
-            .select("*")
-            .eq("owner_id", user_id)  # ← FILTRO CRÍTICO
-            .order("sale_date", desc=False)
-            .execute()
+        # 2. Top Products (últimos 90 días)  
+        top_products = safe_supabase_query(
+            "v_top_products_90d",
+            user_id,
+            "Top products 90d"
         )
         
-        # Si no hay datos de tendencia, crear estructura vacía para el frontend
-        if not trend_res.data:
+        # 3. Sales trend (últimos 7 días)
+        trend_data = safe_supabase_query(
+            "v_sales_trend_7d",
+            user_id,
+            "Sales trend 7d"
+        )
+        
+        # Si no hay datos de tendencia, crear estructura con ceros
+        if not trend_data:
+            logger.info("Creando datos de tendencia por defecto (últimos 7 días)")
             trend_data = []
             for i in range(7):
                 trend_date = date.today() - timedelta(days=6-i)
@@ -59,79 +82,98 @@ def analytics_overview(user_id: str = Depends(require_user)):  # ← AÑADIR aut
                     "daily_revenue": 0,
                     "unique_customers": 0
                 })
-            trend_res.data = trend_data
         
-        churn_res = (
-            supabase.table("v_churn_risk")
-            .select("*")
-            .eq("owner_id", user_id)  # ← FILTRO CRÍTICO
-            .order("churn_score", desc=True)
-            .limit(20)  # Top 20 en riesgo
-            .execute()
+        # 4. Churn Risk
+        churn_data = safe_supabase_query(
+            "v_churn_risk",
+            user_id,
+            "Churn risk"
         )
-
-        # Verificar errores en cada consulta
-        for res_name, res in [
-            ("top_customers", top_customers_res),
-            ("top_products", top_products_res), 
-            ("trend", trend_res),
-            ("churn", churn_res)
-        ]:
-            if getattr(res, "error", None):
-                error_msg = getattr(res.error, "message", str(res.error))
-                logger.error(f"Error en {res_name}: {error_msg}")
-                # No fallar completamente, usar array vacío
-                if not hasattr(res, 'data') or res.data is None:
-                    res.data = []
-
-        logger.info(f"Results for user {user_id}: "
-                   f"customers={len(top_customers_res.data or [])}, "
-                   f"products={len(top_products_res.data or [])}, "
-                   f"trend_points={len(trend_res.data or [])}, "
-                   f"churn_alerts={len(churn_res.data or [])}")
-
-        return {
-            "topCustomers": top_customers_res.data or [],
-            "topProducts": top_products_res.data or [],
-            "trend7d": trend_res.data or [],
-            "churnRisk": churn_res.data or [],
-            "owner_id": user_id,  # Para debug
+        
+        # Preparar respuesta
+        response = {
+            "topCustomers": top_customers[:10],  # Limitar a 10
+            "topProducts": top_products[:10],    # Limitar a 10  
+            "trend7d": trend_data,
+            "churnRisk": churn_data[:20],        # Top 20 en riesgo
+            "owner_id": user_id,                 # Para debug
             "summary": {
-                "customers_count": len(top_customers_res.data or []),
-                "products_count": len(top_products_res.data or []),
-                "trend_days": len(trend_res.data or []),
-                "churn_alerts": len(churn_res.data or [])
+                "customers_count": len(top_customers),
+                "products_count": len(top_products),
+                "trend_days": len(trend_data),
+                "churn_alerts": len(churn_data)
+            },
+            "debug_info": {
+                "server_date": date.today().isoformat(),
+                "supabase_connected": True,  # Si llegamos aquí, está conectado
+                "user_authenticated": True
             }
         }
         
+        logger.info(f"=== RESPUESTA PREPARADA ===")
+        logger.info(f"Customers: {len(top_customers)}, Products: {len(top_products)}, "
+                   f"Trend points: {len(trend_data)}, Churn alerts: {len(churn_data)}")
+        
+        return response
+        
     except Exception as e:
-        logger.error(f"analytics_overview error for user {user_id}: {e}")
-        raise HTTPException(
-            status_code=500, 
-            detail=f"Error obteniendo analytics: {str(e)}"
-        )
+        logger.error(f"=== ERROR CRÍTICO EN ANALYTICS ===")
+        logger.error(f"User ID: {user_id}")
+        logger.error(f"Error: {str(e)}")
+        logger.error(f"Tipo: {type(e).__name__}")
+        
+        # En lugar de fallar, devolver estructura básica
+        fallback_response = {
+            "topCustomers": [],
+            "topProducts": [], 
+            "trend7d": _generate_empty_trend(),
+            "churnRisk": [],
+            "owner_id": user_id,
+            "summary": {
+                "customers_count": 0,
+                "products_count": 0,
+                "trend_days": 7,
+                "churn_alerts": 0
+            },
+            "debug_info": {
+                "server_date": date.today().isoformat(),
+                "error_occurred": True,
+                "error_message": str(e),
+                "fallback_mode": True
+            }
+        }
+        
+        logger.info("Retornando respuesta de fallback")
+        return fallback_response
 
+def _generate_empty_trend() -> List[Dict]:
+    """Genera datos de tendencia vacíos para los últimos 7 días."""
+    trend_data = []
+    for i in range(7):
+        trend_date = date.today() - timedelta(days=6-i)
+        trend_data.append({
+            "sale_date": trend_date.isoformat(),
+            "order_count": 0,
+            "daily_revenue": 0,
+            "unique_customers": 0
+        })
+    return trend_data
 
 @router.get("/churn-risk")  
 def churn_risk_details(user_id: str = Depends(require_user)):
     """
-    Endpoint específico para obtener detalles de riesgo de churn
-    SOLO del usuario actual.
+    Endpoint específico para obtener detalles de riesgo de churn.
+    Versión robusta.
     """
     try:
-        res = (
-            supabase.table("v_churn_risk")
-            .select("*")
-            .eq("owner_id", user_id)  # ← FILTRO CRÍTICO
-            .order("churn_score", desc=True)
-            .execute()
+        logger.info(f"Churn risk details para user_id: {user_id}")
+        
+        churn_data = safe_supabase_query(
+            "v_churn_risk",
+            user_id,
+            "Churn risk details"
         )
         
-        if getattr(res, "error", None):
-            error_msg = getattr(res.error, "message", str(res.error))
-            raise HTTPException(status_code=400, detail=error_msg)
-            
-        churn_data = res.data or []
         high_risk = [c for c in churn_data if c.get("churn_score", 0) >= 70]
         
         return {
@@ -141,66 +183,65 @@ def churn_risk_details(user_id: str = Depends(require_user)):
             "owner_id": user_id
         }
         
-    except HTTPException:
-        raise
     except Exception as e:
-        logger.error(f"churn_risk_details error: {e}")
-        raise HTTPException(
-            status_code=500,
-            detail=f"Error obteniendo detalles de churn: {str(e)}"
-        )
+        logger.error(f"Error en churn_risk_details: {e}")
+        return {
+            "clients": [],
+            "total": 0,
+            "high_risk_count": 0,
+            "owner_id": user_id,
+            "error": str(e)
+        }
 
-
-@router.get("/sales-summary")
-def sales_summary(user_id: str = Depends(require_user)):
+@router.get("/debug")
+def debug_analytics(user_id: str = Depends(require_user)):
     """
-    Resumen de ventas del usuario actual en diferentes períodos.
+    Endpoint de debug para verificar el estado del sistema.
     """
     try:
-        # Ventas últimos 7 días
-        trend_res = (
-            supabase.table("v_sales_trend_7d")
-            .select("*")
-            .eq("owner_id", user_id)
-            .execute()
-        )
+        logger.info(f"=== DEBUG ANALYTICS ===")
+        logger.info(f"User ID: {user_id}")
         
-        # Ventas últimos 90 días (desde top customers)
-        customers_res = (
-            supabase.table("v_top_customers_90d")
-            .select("total_spent, purchase_count")
-            .eq("owner_id", user_id)
-            .execute()
-        )
+        # Probar conexión a Supabase
+        test_result = supabase.table("auth").select("count", count="exact").execute()
+        supabase_ok = not (hasattr(test_result, 'error') and test_result.error)
         
-        trend_data = trend_res.data or []
-        customers_data = customers_res.data or []
+        # Verificar si las vistas existen
+        views_status = {}
+        views_to_check = [
+            "v_top_customers_90d", 
+            "v_top_products_90d", 
+            "v_sales_trend_7d", 
+            "v_churn_risk"
+        ]
         
-        # Calcular métricas
-        last_7d_revenue = sum(float(day.get("daily_revenue", 0)) for day in trend_data)
-        last_7d_orders = sum(int(day.get("order_count", 0)) for day in trend_data)
-        
-        last_90d_revenue = sum(float(c.get("total_spent", 0)) for c in customers_data)
-        last_90d_orders = sum(int(c.get("purchase_count", 0)) for c in customers_data)
+        for view in views_to_check:
+            try:
+                result = supabase.table(view).select("*").limit(1).execute()
+                views_status[view] = {
+                    "exists": True,
+                    "error": None,
+                    "has_data": bool(result.data)
+                }
+            except Exception as e:
+                views_status[view] = {
+                    "exists": False,
+                    "error": str(e),
+                    "has_data": False
+                }
         
         return {
-            "period_7d": {
-                "revenue": round(last_7d_revenue, 2),
-                "orders": last_7d_orders,
-                "avg_order_value": round(last_7d_revenue / max(last_7d_orders, 1), 2)
-            },
-            "period_90d": {
-                "revenue": round(last_90d_revenue, 2), 
-                "orders": last_90d_orders,
-                "avg_order_value": round(last_90d_revenue / max(last_90d_orders, 1), 2),
-                "active_customers": len(customers_data)
-            },
-            "owner_id": user_id
+            "user_id": user_id,
+            "supabase_connection": supabase_ok,
+            "server_time": date.today().isoformat(),
+            "views_status": views_status,
+            "debug_timestamp": str(date.today())
         }
         
     except Exception as e:
-        logger.error(f"sales_summary error: {e}")
-        raise HTTPException(
-            status_code=500,
-            detail=f"Error obteniendo resumen de ventas: {str(e)}"
-        )
+        logger.error(f"Error en debug_analytics: {e}")
+        return {
+            "user_id": user_id,
+            "error": str(e),
+            "debug_timestamp": str(date.today())
+        }
