@@ -6,7 +6,6 @@ from datetime import datetime
 import logging
 
 from app.db.supabase import supabase
-from app.services.openai_service import OpenAIService
 from app.utils.auth import require_user
 
 router = APIRouter(prefix="/ai", tags=["ai"])
@@ -14,6 +13,7 @@ logger = logging.getLogger(__name__)
 
 # --------- Inicialización segura del servicio de IA ---------
 try:
+    from app.services.openai_service import OpenAIService
     openai_service = OpenAIService()
     logger.info("✅ OpenAIService inicializado")
 except Exception as e:
@@ -121,57 +121,71 @@ def _client_metrics(client_id: Union[str, int], user_id: str) -> Dict[str, Any]:
     }
     return metrics
 
-def _build_prompt_single(store_kind: str, basic: Dict[str, Any], m: Dict[str, Any]) -> str:
-    """Prompt compacto para 3–6 sugerencias accionables."""
-    last_dt = m.get("last_order_at")
-    last_str = ""
-    if last_dt:
-        try:
-            last_str = datetime.fromisoformat(str(last_dt).replace("Z", "+00:00")).strftime("%Y-%m-%d")
-        except Exception:
-            last_str = str(last_dt)
-    return f"""
-Eres un asesor de growth para una tienda de ropa ({store_kind}). Hablas en español y das acciones concretas.
-Cliente: {basic.get('name') or 'N/D'} (ID {basic.get('id')})
-Métricas: risk_score={m.get('risk_score')}, risk_label={m.get('risk_label')}, orders_count={m.get('orders_count')}, avg_ticket={m.get('avg_ticket')}, ltv={m.get('ltv')}, last_order_at={last_str}
-Objetivo: 3–6 acciones de recuperación o aumento de valor en formato viñetas breves (≤120 caracteres cada una), específicas y medibles, sin jerga, sin adornos.
-No inventes datos; si faltan, asúmelo y propone acciones low-risk.
-Sal de forma JSON con `actions: string[]` y `note: string`.
-"""
-
-def _ask_llm(prompt: str) -> Dict[str, Any]:
-    """Consulta IA si está disponible y devuelve {'actions': [...], 'note': '...'} o {}."""
+def _get_ai_recommendations(client_data: Dict[str, Any], purchase_history: List[Dict[str, Any]]) -> List[str]:
+    """Obtiene recomendaciones usando OpenAI si está disponible."""
     if openai_service is None:
-        return {}
+        return []
+    
     try:
-        # Asumimos un método genérico chat(messages, temperature=0.2, max_tokens=400)
-        messages = [
-            {"role": "system", "content": "Eres un asesor frío y técnico. Responde solo con JSON válido."},
-            {"role": "user", "content": prompt},
-        ]
-        text = openai_service.chat(messages=messages, temperature=0.2, max_tokens=500)
-        # Intento de parseo seguro
-        import json
-        data = json.loads(text)
-        if isinstance(data, dict) and "actions" in data:
-            # normaliza
-            actions = [a for a in data.get("actions", []) if isinstance(a, str)]
-            note = data.get("note") if isinstance(data.get("note"), str) else ""
-            return {"actions": actions, "note": note}
+        # Preparar datos del cliente para OpenAI
+        ai_client_data = {
+            "id": client_data.get("id"),
+            "name": client_data.get("name"),
+            "email": client_data.get("email"),
+            "churn_score": client_data.get("risk_score", 0) * 100 if client_data.get("risk_score") else 0,
+            "segment": "general",
+            "ltv": client_data.get("ltv", 0),
+            "last_purchase_days": 30  # valor por defecto
+        }
+        
+        # Llamar al servicio de OpenAI
+        recommendations = openai_service.generate_client_recommendations(
+            ai_client_data, 
+            purchase_history
+        )
+        
+        # Extraer descripciones de las recomendaciones
+        actions = []
+        for rec in recommendations:
+            if isinstance(rec, dict) and "description" in rec:
+                actions.append(rec["description"])
+            elif isinstance(rec, str):
+                actions.append(rec)
+        
+        return actions[:5]  # Máximo 5 acciones
+        
     except Exception as e:
-        logger.warning(f"[LLM] fallo parseando/consultando: {e}")
-    return {}
+        logger.warning(f"[OpenAI] Error generando recomendaciones: {e}")
+        return []
 
 def _compose_item(basic: Dict[str, Any], m: Dict[str, Any], store_kind: str = "retail moda") -> Dict[str, Any]:
     """Arma la ficha de recomendaciones para un cliente."""
-    prompt = _build_prompt_single(store_kind, basic, m)
-    llm = _ask_llm(prompt)
-    if llm:
-        actions = llm["actions"]
-        note = llm.get("note", "")
+    
+    # Intentar obtener recomendaciones de IA
+    ai_actions = []
+    if openai_service is not None:
+        try:
+            # Preparar historial de compras (vacío por ahora)
+            purchase_history = []
+            
+            # Preparar datos del cliente con métricas
+            client_data_with_metrics = {**basic, **m}
+            
+            ai_actions = _get_ai_recommendations(client_data_with_metrics, purchase_history)
+        except Exception as e:
+            logger.warning(f"Error obteniendo recomendaciones IA: {e}")
+    
+    # Si tenemos recomendaciones de IA, usarlas
+    if ai_actions:
+        actions = ai_actions
+        note = "Recomendaciones generadas por IA"
+        source = "llm"
     else:
+        # Fallback a reglas deterministas
         actions = _rule_based_actions(basic.get("name", ""), m.get("risk_label"))
         note = "Fallback determinista por indisponibilidad de IA o datos insuficientes."
+        source = "rules"
+    
     return {
         "client_id": basic.get("id"),
         "client_name": basic.get("name"),
@@ -180,7 +194,7 @@ def _compose_item(basic: Dict[str, Any], m: Dict[str, Any], store_kind: str = "r
         "last_order_at": m.get("last_order_at"),
         "actions": actions,
         "note": note,
-        "source": "llm" if llm else "rules",
+        "source": source,
     }
 
 
@@ -242,7 +256,7 @@ def get_suggestions(
                 }
                 items.append(_compose_item(basic, m))
         else:
-            # Fallback: toma clientes “activos” o simplemente los primeros
+            # Fallback: toma clientes "activos" o simplemente los primeros
             clients = _safe_list("clients", limit=limit, owner_id=user_id)
             for c in clients:
                 basic = {
@@ -280,4 +294,90 @@ def get_suggestions(
                 "error_message": str(e),
                 "service_available": openai_service is not None,
             },
+        }
+
+@router.get("/status", summary="Estado del servicio de IA")
+def ai_status(user_id: str = Depends(require_user)) -> Dict[str, Any]:
+    """
+    Endpoint para verificar el estado del servicio de IA.
+    """
+    try:
+        status = {
+            "openai_available": openai_service is not None,
+            "timestamp": datetime.now().isoformat(),
+            "user_id": user_id,
+        }
+        
+        if openai_service is not None:
+            try:
+                # Intentar obtener el status del servicio
+                if hasattr(openai_service, 'get_status'):
+                    ai_status_info = openai_service.get_status()
+                    status.update(ai_status_info)
+                else:
+                    status["features"] = ["recommendations", "suggestions"]
+                    status["model"] = "gpt-4o-mini"
+            except Exception as e:
+                status["openai_error"] = str(e)
+        
+        return status
+        
+    except Exception as e:
+        logger.error(f"Error en /ai/status: {e}")
+        return {
+            "openai_available": False,
+            "error": str(e),
+            "timestamp": datetime.now().isoformat(),
+        }
+
+@router.post("/test-recommendation", summary="Prueba de recomendación para un cliente")
+def test_recommendation(
+    payload: Dict[str, Any],
+    user_id: str = Depends(require_user),
+) -> Dict[str, Any]:
+    """
+    Endpoint de prueba para generar recomendaciones con datos personalizados.
+    
+    Ejemplo de payload:
+    {
+        "client_name": "Ana García",
+        "risk_score": 0.7,
+        "last_purchase_days": 45
+    }
+    """
+    try:
+        # Datos básicos del cliente
+        basic = {
+            "id": "test-client-id",
+            "name": payload.get("client_name", "Cliente de Prueba"),
+            "email": "test@example.com",
+            "owner_id": user_id,
+        }
+        
+        # Métricas simuladas
+        metrics = {
+            "risk_score": payload.get("risk_score", 0.5),
+            "risk_label": _risk_label(payload.get("risk_score", 0.5)),
+            "orders_count": payload.get("orders_count", 3),
+            "avg_ticket": payload.get("avg_ticket", 50.0),
+            "ltv": payload.get("ltv", 150.0),
+            "last_order_at": None,
+        }
+        
+        # Generar recomendación
+        item = _compose_item(basic, metrics)
+        
+        return {
+            "success": True,
+            "recommendation": item,
+            "openai_used": item["source"] == "llm",
+            "timestamp": datetime.now().isoformat(),
+        }
+        
+    except Exception as e:
+        logger.error(f"Error en test-recommendation: {e}")
+        return {
+            "success": False,
+            "error": str(e),
+            "timestamp": datetime.now().isoformat(),
         }
