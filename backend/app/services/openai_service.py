@@ -1,640 +1,508 @@
-# backend/app/services/openai_service.py
+# backend/app/services/openai_service.py - VERSIÓN CORREGIDA
 from __future__ import annotations
 
 import json
 import logging
 import os
 import re
-import hashlib
 from typing import Any, Dict, List, Optional
 from datetime import datetime
-from io import BytesIO
-
-# Dependencias opcionales: no rompen la app si no están instaladas
-try:
-    import PyPDF2  # type: ignore
-except Exception:
-    PyPDF2 = None  # noqa: N816
 
 logger = logging.getLogger(__name__)
 
 
-# -------- Utilidades de localización/temporadas (LatAm) -------- #
-
-_LATAM_SOUTH_HEMISPHERE = {
-    # Con estaciones invertidas respecto a Europa/USA
-    "argentina", "chile", "uruguay", "paraguay", "bolivia",
-    # Brasil es mixto; asumimos sur por defecto para retail urbano
-    "brasil", "brazil",
-    # Perú es mixto; asumimos costa/andina sur como inversión
-    "peru", "perú",
-}
-
-_LATAM_TROPICAL = {
-    # Tropical (lluvias/seca). México: gran parte tropical para retail masivo
-    "mexico", "méxico", "colombia", "venezuela", "ecuador",
-    "panama", "panamá", "costa rica", "costa-rica", "nicaragua",
-    "honduras", "el salvador", "el salvador", "guatemala",
-    "republica dominicana", "república dominicana", "dominican republic",
-    "puerto rico", "cuba", "haiti", "haití",
-    # Norte/Noreste de Brasil (gran base tropical)
-    "manaus", "belem", "belém",
-}
-
-def _normalize_country(value: Optional[str]) -> str:
-    if not value:
-        return ""
-    return value.strip().lower()
-
-
-def get_latam_season(today: Optional[datetime] = None, country_or_city: Optional[str] = None) -> str:
-    """
-    Devuelve la 'temporada' comercial para LATAM:
-    - Hemisferio sur: estaciones invertidas (primavera/verano/otoño/invierno).
-    - Tropical: 'lluvias' (aprox. mayo-octubre) o 'seca' (nov-abril).
-    - Si no se conoce país/ciudad: asumimos tropical (retail online panregional).
-    """
-    dt = today or datetime.now()
-    country = _normalize_country(country_or_city)
-
-    # Heurística simple por pertenencia a conjuntos
-    if country in _LATAM_SOUTH_HEMISPHERE:
-        # Invertidas vs. España
-        m = dt.month
-        if 9 <= m <= 11:
-            return "primavera"   # (Sep-Nov)
-        elif 12 <= m or m <= 2:
-            return "verano"      # (Dic-Feb)
-        elif 3 <= m <= 5:
-            return "otoño"       # (Mar-May)
-        else:
-            return "invierno"    # (Jun-Ago)
-
-    # Tropical por defecto si no está explícito en sur
-    m = dt.month
-    if 5 <= m <= 10:
-        return "lluvias"
-    else:
-        return "seca"
-
-
-class KnowledgeBase:
-    """
-    Sistema de conocimiento empresarial para contextualizar las recomendaciones de IA.
-    Permite cargar PDFs, documentos y crear una base de conocimiento específica del negocio.
-    """
-
-    def __init__(self) -> None:
-        self.knowledge_data: Dict[str, Any] = {}
-        self.load_default_knowledge()
-
-    def load_default_knowledge(self) -> None:
-        """Carga conocimiento base del negocio de moda orientado a LATAM."""
-        self.knowledge_data = {
-            # Tendencias genéricas (se combinan con temporada calculada)
-            "seasonal_trends": {
-                "primavera": ["colores vivos/pastel", "tejidos ligeros", "capa fina", "estampados florales"],
-                "verano": ["líneas resort", "shorts", "camisetas", "sandalias", "sombreros"],
-                "otoño": ["tonos tierra", "suéteres", "botas", "chaquetas ligeras"],
-                "invierno": ["capas térmicas", "abrigos", "bufandas", "botas"],
-                "lluvias": ["impermeables", "botas water-proof", "secado rápido", "capas ligeras"],
-                "seca": ["prendas transpirables", "tejidos frescos", "looks urbanos"],
-            },
-            "cross_sell_rules": {
-                "camisas": ["pantalones", "chaquetas", "accesorios"],
-                "pantalones": ["camisas", "cinturones", "zapatos"],
-                "vestidos": ["zapatos", "bolsos", "joyería"],
-                "zapatos": ["medias", "cuidado de calzado", "plantillas"],
-            },
-            "customer_segments": {
-                "joven_trendy": {
-                    "age_range": "18-25",
-                    "interests": ["tendencias", "redes sociales", "fast fashion"],
-                    "channels": ["instagram", "tiktok", "email"],
-                    "price_sensitivity": "alta",
-                },
-                "profesional": {
-                    "age_range": "26-40",
-                    "interests": ["calidad", "versatilidad", "trabajo"],
-                    "channels": ["email", "linkedin", "whatsapp"],
-                    "price_sensitivity": "media",
-                },
-                "maduro_premium": {
-                    "age_range": "40+",
-                    "interests": ["calidad premium", "durabilidad", "comodidad"],
-                    "channels": ["email", "llamada", "presencial"],
-                    "price_sensitivity": "baja",
-                },
-            },
-            "churn_patterns": {
-                "alta_frecuencia": "Cliente que compra semanalmente y deja de hacerlo",
-                "estacional": "Cliente que compra en temporadas específicas",
-                "ocasional": "Cliente que compra para eventos especiales",
-                "price_sensitive": "Cliente que solo compra con descuentos",
-            },
-            "retention_strategies": {
-                "descuento_progresivo": "Aumentar descuento según días sin comprar",
-                "bundle_personalizado": "Agrupar productos basado en historial",
-                "early_access": "Acceso anticipado a nuevas colecciones",
-                "loyalty_points": "Puntos extra en categorías favoritas",
-            },
-        }
-
-    def add_pdf_knowledge(self, pdf_content: bytes, category: str = "general") -> str:
-        """Extrae texto de PDF y lo añade a la base de conocimiento."""
-        if PyPDF2 is None:
-            raise RuntimeError(
-                "PyPDF2 no está instalado. Instálalo con 'pip install PyPDF2' para cargar PDFs."
-            )
-        try:
-            pdf_reader = PyPDF2.PdfReader(BytesIO(pdf_content))
-            text_content = ""
-            for page in pdf_reader.pages:
-                text_content += (page.extract_text() or "") + "\n"
-
-            # Crear hash único para el documento
-            doc_hash = hashlib.md5(pdf_content).hexdigest()[:8]
-
-            # Almacenar en knowledge base
-            if category not in self.knowledge_data:
-                self.knowledge_data[category] = {}
-
-            self.knowledge_data[category][f"document_{doc_hash}"] = {
-                "content": text_content,
-                "type": "pdf",
-                "added_at": datetime.now().isoformat(),
-                "summary": self._extract_key_points(text_content),
-            }
-
-            logger.info(
-                f"PDF añadido a knowledge base: categoría '{category}', hash {doc_hash}"
-            )
-            return doc_hash
-
-        except Exception as e:
-            logger.error(f"Error procesando PDF: {e}")
-            raise
-
-    def add_text_knowledge(self, content: str, title: str, category: str = "general") -> str:
-        """Añade conocimiento en formato texto."""
-        doc_id = f"text_{hashlib.md5(content.encode()).hexdigest()[:8]}"
-
-        if category not in self.knowledge_data:
-            self.knowledge_data[category] = {}
-
-        self.knowledge_data[category][doc_id] = {
-            "title": title,
-            "content": content,
-            "type": "text",
-            "added_at": datetime.now().isoformat(),
-            "summary": self._extract_key_points(content),
-        }
-
-        return doc_id
-
-    def _extract_key_points(self, text: str) -> List[str]:
-        """Extrae puntos clave de un texto (versión básica)."""
-        lines = text.split("\n")
-        key_points: List[str] = []
-
-        for line in lines:
-            line = line.strip()
-            if 20 < len(line) < 200:
-                if any(
-                    word in line.lower()
-                    for word in [
-                        "importante",
-                        "clave",
-                        "estrategia",
-                        "objetivo",
-                        "resultado",
-                        "tendencia",
-                        "recomendación",
-                    ]
-                ):
-                    key_points.append(line)
-                elif re.search(r"\d+%|\d+\.\d+", line):
-                    key_points.append(line)
-
-        return key_points[:10]
-
-    def get_context_for_client(self, client_data: Dict[str, Any], category: Optional[str] = None) -> str:
-        """Obtiene contexto relevante de la knowledge base para un cliente (LATAM-aware)."""
-        relevant_context: List[str] = []
-
-        # Temporada LATAM según país/ciudad
-        country_or_city = client_data.get("country") or client_data.get("city") or ""
-        season = get_latam_season(country_or_city=country_or_city)
-        seasonal_trends = self.knowledge_data.get("seasonal_trends", {}).get(season, [])
-        if seasonal_trends:
-            relevant_context.append(f"Tendencias actuales ({season}): {', '.join(seasonal_trends)}")
-
-        # Contexto de segmento
-        segment = client_data.get("segment", "general")
-        if segment in self.knowledge_data.get("customer_segments", {}):
-            segment_info = self.knowledge_base_safe_json(self.knowledge_data["customer_segments"][segment])
-            relevant_context.append(f"Perfil del segmento '{segment}': {segment_info}")
-
-        # Cross-sell basado en categoría favorita
-        fav_category = str(client_data.get("last_category", "")).lower()
-        cross_sell = self.knowledge_data.get("cross_sell_rules", {}).get(fav_category, [])
-        if cross_sell:
-            relevant_context.append(f"Productos complementarios a {fav_category}: {', '.join(cross_sell)}")
-
-        # Documentos específicos de la categoría si se proporciona
-        if category and category in self.knowledge_data:
-            for _doc_id, doc_data in self.knowledge_data[category].items():
-                if isinstance(doc_data, dict) and doc_data.get("summary"):
-                    relevant_context.append(
-                        f"Conocimiento empresarial: {', '.join(doc_data['summary'][:3])}"
-                    )
-
-        return "\n".join(relevant_context)
-
-    @staticmethod
-    def knowledge_base_safe_json(data: Dict[str, Any]) -> str:
-        try:
-            return json.dumps(data, ensure_ascii=False)
-        except Exception:
-            return str(data)
-
-
 class OpenAIService:
     """
-    Servicio avanzado para generar recomendaciones con IA contextualizada.
-    Integra knowledge base empresarial y prompts optimizados.
+    Servicio OpenAI robusto con manejo de errores mejorado y fallbacks inteligentes.
     """
 
     def __init__(self) -> None:
         self.client = None
         self._model = "gpt-4o-mini"
-        self.knowledge_base = KnowledgeBase()
+        self._available = False
 
-        # Buscar API key
-        api_key = os.getenv("OPENAI_API_KEY") or os.getenv("NEXT_PUBLIC_OPENAI_KEY")
+        # Buscar API key en orden de prioridad
+        api_key = (
+            os.getenv("OPENAI_API_KEY") or
+            os.getenv("NEXT_PUBLIC_OPENAI_KEY") or 
+            getattr(self._get_settings(), 'OPENAI_API_KEY', None) or
+            getattr(self._get_settings(), 'NEXT_PUBLIC_OPENAI_KEY', None)
+        )
+
         if not api_key:
-            logger.error("OpenAI API key no encontrada. Este servicio requiere IA (sin fallbacks).")
+            logger.warning("🔴 OpenAI API key no encontrada. Funcionalidades de IA deshabilitadas.")
+            logger.info("💡 Configura OPENAI_API_KEY en tu archivo .env")
             return
 
         try:
-            from openai import OpenAI  # type: ignore
+            from openai import OpenAI
             self.client = OpenAI(api_key=api_key)
-            logger.info("OpenAI client inicializado correctamente")
+            self._available = True
+            logger.info("✅ OpenAI client inicializado correctamente")
         except ImportError:
-            logger.error("SDK de OpenAI no encontrado. Instala: pip install openai>=1.0")
+            logger.error("❌ SDK de OpenAI no encontrado. Ejecuta: pip install openai>=1.0")
             self.client = None
         except Exception as e:
-            logger.error(f"Error inicializando OpenAI client: {e}")
+            logger.error(f"❌ Error inicializando OpenAI client: {e}")
             self.client = None
 
-    def _ensure_available(self) -> None:
-        """Requiere IA disponible (sin fallback)."""
-        if self.client is None:
-            raise RuntimeError(
-                "Servicio de IA no disponible: configure OPENAI_API_KEY e instale el SDK 'openai'."
-            )
+    def _get_settings(self):
+        """Obtiene settings de forma segura."""
+        try:
+            from app.core.settings import settings
+            return settings
+        except Exception:
+            return None
+
+    def _is_available(self) -> bool:
+        """Verifica si OpenAI está disponible."""
+        return self._available and self.client is not None
 
     def _safe_json_parse(self, text: str) -> Any:
-        """Parsea JSON de forma segura."""
+        """Parsea JSON de forma ultra-robusta."""
+        if not text or not isinstance(text, str):
+            raise json.JSONDecodeError("Texto vacío o inválido", "", 0)
+            
         text = text.strip()
-
+        
+        # Intento directo
         try:
             return json.loads(text)
         except json.JSONDecodeError:
             pass
 
-        # Buscar bloques JSON
-        array_match = re.search(r"\[.*\]", text, re.DOTALL)
-        if array_match:
-            try:
-                return json.loads(array_match.group())
-            except json.JSONDecodeError:
-                pass
+        # Limpiar texto común de IA (```json, etc)
+        cleaned_text = re.sub(r'```json\s*', '', text)
+        cleaned_text = re.sub(r'```\s*$', '', cleaned_text)
+        
+        try:
+            return json.loads(cleaned_text)
+        except json.JSONDecodeError:
+            pass
 
-        object_match = re.search(r"\{.*\}", text, re.DOTALL)
+        # Buscar arrays JSON
+        array_patterns = [
+            r'\[\s*\{.*?\}\s*\]',  # Array de objetos
+            r'\[.*?\]',            # Cualquier array
+        ]
+        
+        for pattern in array_patterns:
+            matches = re.findall(pattern, text, re.DOTALL)
+            for match in matches:
+                try:
+                    return json.loads(match)
+                except json.JSONDecodeError:
+                    continue
+        
+        # Buscar objetos JSON
+        object_match = re.search(r'\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}', text)
         if object_match:
             try:
                 return json.loads(object_match.group())
             except json.JSONDecodeError:
                 pass
+                
+        logger.error(f"🔴 No se pudo parsear JSON de OpenAI: {text[:300]}...")
+        raise json.JSONDecodeError("No se encontró JSON válido en respuesta de IA", text, 0)
 
-        logger.error(f"No se pudo parsear JSON de: {text[:200]}...")
-        raise json.JSONDecodeError("No se encontró JSON válido", text, 0)
-
-    def _prepare_basic_context(self, client_data: Dict[str, Any], purchase_history: List[Dict[str, Any]]) -> str:
-        """Contexto básico del cliente."""
-        name = client_data.get("name", "Cliente")
-        churn_score = client_data.get("churn_score", 0)
-        segment = client_data.get("segment", "general")
-        last_purchase_days = client_data.get("last_purchase_days", 999)
-
-        # Análisis de compras
-        total_spent = sum(float(p.get("total_price", 0) or 0) for p in purchase_history)
-        avg_ticket = total_spent / len(purchase_history) if purchase_history else 0
-
-        # Categorías más compradas
-        categories: Dict[str, int] = {}
-        for purchase in purchase_history:
-            items = purchase.get("items", []) or []
-            for item in items:
-                category = self._infer_category(str(item.get("name", "")))
-                categories[category] = categories.get(category, 0) + 1
-
-        top_category = max(categories.keys(), key=lambda k: categories[k]) if categories else "general"
-
-        return (
-            f"- Nombre: {name}\n"
-            f"- Segmento: {segment}\n"
-            f"- Riesgo de churn: {churn_score}%\n"
-            f"- Días sin comprar: {last_purchase_days}\n"
-            f"- Total gastado: ${total_spent:.2f}\n"
-            f"- Ticket promedio: ${avg_ticket:.2f}\n"
-            f"- Compras realizadas: {len(purchase_history)}\n"
-            f"- Categoría favorita: {top_category}\n"
-            f"- Distribución de categorías: {dict(list(categories.items())[:3])}"
-        )
-
-    def _analyze_customer_behavior(self, client_data: Dict[str, Any], purchase_history: List[Dict[str, Any]]) -> str:
-        """Análisis avanzado del comportamiento del cliente."""
-        if not purchase_history:
-            return "- Cliente nuevo sin historial de compras"
-
-        # Frecuencia de compra
-        if len(purchase_history) >= 5:
-            frequency = "alta"
-        elif len(purchase_history) >= 2:
-            frequency = "media"
-        else:
-            frequency = "baja"
-
-        # Estacionalidad (básica)
-        months: List[int] = []
-        for purchase in purchase_history:
-            if purchase.get("purchased_at"):
+    def _prepare_client_context(self, client_data: Dict[str, Any], purchase_history: List[Dict[str, Any]]) -> str:
+        """Prepara contexto del cliente de forma robusta."""
+        try:
+            # Datos básicos con defaults seguros
+            client_id = client_data.get("id") or client_data.get("client_id", "desconocido")
+            name = client_data.get("name", "Cliente")
+            email = client_data.get("email", "no-email")
+            churn_score = int(client_data.get("churn_score", 0) or 0)
+            segment = client_data.get("segment", "general")
+            last_purchase_days = int(client_data.get("last_purchase_days", 999) or 999)
+            
+            # Análisis de compras robusto
+            total_spent = 0
+            categories = {}
+            recent_items = []
+            
+            for purchase in (purchase_history or [])[:20]:  # Limitar a 20 más recientes
                 try:
-                    month = datetime.fromisoformat(str(purchase["purchased_at"])).month
-                    months.append(month)
-                except Exception:
-                    pass
-
-        seasonal_pattern = "No identificado"
-        if months:
-            most_common_month = max(set(months), key=months.count)
-            # Clasificación LATAM simple
-            if 12 <= most_common_month or most_common_month <= 2:
-                seasonal_pattern = "Alta de fin de año/verano LATAM"
-            elif 5 <= most_common_month <= 10:
-                seasonal_pattern = "Picos en temporada de lluvias/tropical"
-
-        # Sensibilidad al precio
-        prices = [float(p.get("total_price", 0) or 0) for p in purchase_history]
-        avg_price = sum(prices) / len(prices) if prices else 0
-        if avg_price > 100:
-            price_sensitivity = "baja"
-        elif avg_price > 50:
-            price_sensitivity = "media"
-        else:
-            price_sensitivity = "alta"
-
-        return (
-            f"- Frecuencia de compra: {frequency}\n"
-            f"- Patrón estacional: {seasonal_pattern}\n"
-            f"- Sensibilidad al precio: {price_sensitivity}\n"
-            f"- Ticket promedio: ${avg_price:.2f}\n"
-            f"- Última compra: hace {client_data.get('last_purchase_days', 999)} días"
-        )
+                    # Sumar total gastado
+                    price = float(purchase.get("total_price", 0) or 0)
+                    total_spent += price
+                    
+                    # Analizar items
+                    items = purchase.get("items", [])
+                    if not items and purchase.get("item_id"):
+                        # Crear item básico si no hay items expandidos
+                        items = [{
+                            "id": purchase["item_id"],
+                            "name": f"Producto-{purchase['item_id'][:8]}",
+                            "price": price
+                        }]
+                    
+                    for item in items:
+                        item_name = str(item.get("name", "Producto"))
+                        recent_items.append(item_name)
+                        
+                        # Categorizar producto
+                        category = self._infer_category(item_name)
+                        categories[category] = categories.get(category, 0) + 1
+                        
+                except Exception as e:
+                    logger.warning(f"Error procesando compra: {e}")
+                    continue
+            
+            # Estadísticas calculadas
+            purchase_count = len(purchase_history or [])
+            avg_ticket = round(total_spent / purchase_count, 2) if purchase_count > 0 else 0
+            top_category = max(categories.keys(), key=lambda k: categories[k]) if categories else "general"
+            
+            # Contexto estacional
+            current_season = self._get_current_season()
+            
+            context = {
+                "cliente_id": client_id,
+                "nombre": name,
+                "email": email,
+                "segmento": segment,
+                "riesgo_churn": f"{churn_score}%",
+                "dias_sin_comprar": last_purchase_days,
+                "temporada_actual": current_season,
+                "estadisticas": {
+                    "compras_realizadas": purchase_count,
+                    "total_gastado": f"${total_spent:.2f}",
+                    "ticket_promedio": f"${avg_ticket:.2f}",
+                    "categoria_favorita": top_category,
+                    "categorias": dict(list(categories.items())[:5])
+                },
+                "productos_recientes": recent_items[:8],
+                "perfil_comportamiento": self._analyze_behavior_pattern(churn_score, last_purchase_days, purchase_count)
+            }
+            
+            return json.dumps(context, ensure_ascii=False, indent=2)
+            
+        except Exception as e:
+            logger.error(f"Error preparando contexto del cliente: {e}")
+            # Contexto mínimo de emergencia
+            return json.dumps({
+                "nombre": client_data.get("name", "Cliente"),
+                "riesgo_churn": f"{client_data.get('churn_score', 0)}%",
+                "dias_sin_comprar": client_data.get("last_purchase_days", 999),
+                "error": "Contexto limitado por error en procesamiento"
+            })
 
     def _infer_category(self, item_name: str) -> str:
-        """Infiere la categoría de un producto basado en su nombre."""
+        """Infiere categoría de producto de forma robusta."""
+        if not item_name or not isinstance(item_name, str):
+            return "otros"
+            
         item_lower = item_name.lower()
-
-        if any(word in item_lower for word in ["camisa", "blusa", "camiseta", "polo", "top"]):
-            return "camisas_tops"
-        if any(word in item_lower for word in ["pantalon", "pantalón", "jean", "bermuda", "short", "leggin", "legging"]):
-            return "pantalones"
-        if any(word in item_lower for word in ["vestido", "falda"]):
-            return "vestidos_faldas"
-        if any(word in item_lower for word in ["zapato", "sandalia", "bota", "tenis", "sneaker"]):
-            return "calzado"
-        if any(word in item_lower for word in ["chaqueta", "abrigo", "sueter", "suéter", "cardigan", "cárdigan"]):
-            return "abrigo"
-        if any(word in item_lower for word in ["bolso", "cartera", "mochila"]):
-            return "bolsos"
-        if any(word in item_lower for word in ["collar", "pulsera", "anillo", "arete", "pendiente"]):
-            return "accesorios"
+        
+        category_patterns = {
+            "camisas": ["camisa", "blusa", "camiseta", "polo", "top"],
+            "pantalones": ["pantalon", "jean", "bermuda", "short", "leggin", "jogger"],
+            "vestidos": ["vestido", "falda"],
+            "calzado": ["zapato", "sandalia", "bota", "tenis", "sneaker", "mocasin"],
+            "abrigos": ["chaqueta", "abrigo", "sueter", "cardigan", "hoodie"],
+            "accesorios": ["bolso", "cartera", "mochila", "cinturon", "gorra"],
+            "joyeria": ["collar", "pulsera", "anillo", "arete", "reloj"]
+        }
+        
+        for category, keywords in category_patterns.items():
+            if any(keyword in item_lower for keyword in keywords):
+                return category
+                
         return "otros"
 
-    def _prepare_enhanced_client_context(self, client_data: Dict[str, Any], purchase_history: List[Dict[str, Any]]) -> str:
-        """Prepara contexto enriquecido del cliente con knowledge base (LATAM-aware)."""
-        basic_context = self._prepare_basic_context(client_data, purchase_history)
-        business_context = self.knowledge_base.get_context_for_client(client_data)
-        behavior_analysis = self._analyze_customer_behavior(client_data, purchase_history)
-        return (
-            "PERFIL DEL CLIENTE:\n"
-            f"{basic_context}\n\n"
-            "CONTEXTO EMPRESARIAL:\n"
-            f"{business_context}\n\n"
-            "ANÁLISIS DE COMPORTAMIENTO:\n"
-            f"{behavior_analysis}"
-        )
+    def _get_current_season(self) -> str:
+        """Obtiene la temporada actual."""
+        month = datetime.now().month
+        if 3 <= month <= 5:
+            return "primavera"
+        elif 6 <= month <= 8:
+            return "verano"
+        elif 9 <= month <= 11:
+            return "otoño"
+        else:
+            return "invierno"
 
-    # ---------------------- Métodos IA (sin fallback) ---------------------- #
+    def _analyze_behavior_pattern(self, churn_score: int, days_since_last: int, purchase_count: int) -> str:
+        """Analiza el patrón de comportamiento del cliente."""
+        churn = int(churn_score or 0)
+        days = int(days_since_last or 999)
+        purchases = int(purchase_count or 0)
+        
+        if churn >= 80 or days > 120:
+            return "🔴 CRÍTICO - Cliente inactivo en riesgo alto"
+        elif churn >= 60 or days > 60:
+            return "🟡 EN RIESGO - Cliente necesita reactivación"
+        elif churn >= 40 or days > 30:
+            return "🟠 ATENCIÓN - Cliente requiere seguimiento"
+        elif purchases >= 5 and days <= 30:
+            return "🟢 VIP - Cliente muy activo y fiel"
+        else:
+            return "🔵 REGULAR - Cliente con actividad normal"
 
     def generate_client_recommendations(
-        self,
-        client_data: Dict[str, Any],
-        purchase_history: List[Dict[str, Any]],
+        self, 
+        client_data: Dict[str, Any], 
+        purchase_history: List[Dict[str, Any]]
     ) -> List[Dict[str, Any]]:
-        """Genera recomendaciones personalizadas con IA contextualizada (100% IA)."""
-        self._ensure_available()
+        """Genera recomendaciones personalizadas ultra-robustas."""
+        
+        logger.info(f"🚀 Generando recomendaciones para cliente: {client_data.get('name', 'Unknown')}")
+        
+        # Fallback inmediato si OpenAI no está disponible
+        if not self._is_available():
+            logger.warning("⚠️  OpenAI no disponible, usando fallback inteligente")
+            return self._fallback_recommendations(client_data.get("churn_score", 0))
 
-        context = self._prepare_enhanced_client_context(client_data, purchase_history)
+        try:
+            context = self._prepare_client_context(client_data, purchase_history)
+            
+            # Prompt optimizado y robusto
+            prompt = f"""Eres un experto consultor en marketing de retención para tiendas de moda online con 10+ años de experiencia.
 
-        # Temporada LATAM para incluir en el prompt
-        season = get_latam_season(country_or_city=client_data.get("country") or client_data.get("city"))
-
-        prompt = f"""Eres María, una experta consultora en marketing de retención con 15 años de experiencia en retail de moda LATAM.
-Has ayudado a cientos de marcas a reducir el churn y aumentar el CLV. Ajusta lenguaje y ejemplos a LATAM.
-
-TEMPORADA_COMERCIAL_ACTUAL: {season}
-
-SITUACIÓN:
+PERFIL DEL CLIENTE:
 {context}
 
-TU MISIÓN:
-Genera 3-4 recomendaciones ultra-específicas y accionables para este cliente. Cada recomendación debe ser tan personalizada que el cliente sienta que fue diseñada exclusivamente para él/ella.
+INSTRUCCIONES ESPECÍFICAS:
+1. Genera exactamente 3 recomendaciones personalizadas
+2. Cada recomendación debe ser específica para ESTE cliente
+3. Considera su riesgo de churn, historial y temporada actual
+4. Incluye timeframes y canales específicos
 
-CRITERIOS DE EXCELENCIA:
-1. ESPECÍFICO: Menciona productos, categorías, colores o estilos concretos
-2. URGENTE: Define timeframes claros (24h, 7 días, etc.)
-3. PERSONAL: Referencias directas a su historial de compra
-4. MEDIBLE: Incluye métricas esperadas cuando sea relevante
-
-FORMATO DE RESPUESTA (JSON ESTRICTO):
+RESPUESTA REQUERIDA (JSON válido):
 [
   {{
-    "type": "discount_targeted|vip_treatment|bundle_offer|early_access|personal_shopper",
-    "title": "Título que capture atención (máx 60 caracteres)",
-    "description": "Descripción específica mencionando productos/categorías de su historial y temporada LATAM",
-    "urgency": "crítica|alta|media",
-    "channel": "email_personalizado|whatsapp_vip|llamada_personal|sms_exclusivo",
-    "timing": "inmediato|dentro_24h|esta_semana|proximos_7dias",
-    "expected_conversion": "15-25%|10-15%|5-10%",
-    "reasoning": "Por qué esta recomendación es perfecta para ESTE cliente específico"
+    "type": "discount|personal_contact|vip_offer|bundle|reactivation",
+    "description": "Descripción específica mencionando categorías/productos de su historial",
+    "urgency": "alta|media|baja",
+    "channel": "email|whatsapp|sms|llamada",
+    "reasoning": "Por qué esta recomendación es ideal para este cliente específico"
+  }},
+  {{
+    "type": "cross_sell|loyalty_program|seasonal_offer|early_access",
+    "description": "Segunda recomendación específica y personalizada",
+    "urgency": "alta|media|baja", 
+    "channel": "email|whatsapp|sms|llamada",
+    "reasoning": "Justificación basada en el perfil del cliente"
+  }},
+  {{
+    "type": "engagement|survey|personal_shopper|exclusive_preview",
+    "description": "Tercera recomendación complementaria",
+    "urgency": "alta|media|baja",
+    "channel": "email|whatsapp|sms|llamada", 
+    "reasoning": "Razón estratégica para esta acción"
   }}
 ]
 
-Responde SOLO con el JSON, sin explicaciones adicionales."""
-        try:
+IMPORTANTE: Responde ÚNICAMENTE con el array JSON válido, sin texto adicional."""
+
+            # Llamada a OpenAI con configuración robusta
             response = self.client.chat.completions.create(
                 model=self._model,
                 messages=[
-                    {"role": "system", "content": "Eres María, consultora experta en retención en fashion retail para LATAM."},
-                    {"role": "user", "content": prompt},
+                    {
+                        "role": "system", 
+                        "content": "Eres un experto en marketing de retención especializado en fashion retail. Respondes únicamente con JSON válido."
+                    },
+                    {
+                        "role": "user", 
+                        "content": prompt
+                    }
                 ],
-                max_tokens=1200,
+                max_tokens=1000,
                 temperature=0.7,
+                timeout=30  # Timeout de 30 segundos
             )
-            content = response.choices[0].message.content.strip()
+
+            content = response.choices[0].message.content
+            if not content:
+                raise Exception("OpenAI devolvió respuesta vacía")
+                
+            content = content.strip()
+            logger.info(f"📝 Respuesta de OpenAI recibida: {len(content)} caracteres")
+            
+            # Parsear respuesta
             recommendations = self._safe_json_parse(content)
-
-            # Normalización
-            if isinstance(recommendations, dict):
-                recommendations = [recommendations]
+            
+            # Validar estructura
             if not isinstance(recommendations, list):
-                raise ValueError("La IA no devolvió una lista JSON válida de recomendaciones.")
+                if isinstance(recommendations, dict):
+                    recommendations = [recommendations]
+                else:
+                    raise ValueError("Respuesta no es lista ni objeto")
+            
+            # Limpiar y validar cada recomendación
+            valid_recs = []
+            for i, rec in enumerate(recommendations[:5]):  # Máximo 5 recomendaciones
+                if not isinstance(rec, dict):
+                    logger.warning(f"Recomendación {i} no es un objeto válido")
+                    continue
+                    
+                # Validar campos requeridos
+                required_fields = ["type", "description"]
+                if not all(field in rec for field in required_fields):
+                    logger.warning(f"Recomendación {i} carece de campos requeridos")
+                    continue
+                
+                # Añadir campos faltantes con defaults
+                rec.setdefault("urgency", "media")
+                rec.setdefault("channel", "email")
+                rec.setdefault("reasoning", "Recomendación basada en análisis de perfil del cliente")
+                
+                # Limpiar campos de texto
+                for field in ["type", "description", "urgency", "channel", "reasoning"]:
+                    if field in rec:
+                        rec[field] = str(rec[field]).strip()[:500]  # Limitar longitud
+                
+                valid_recs.append(rec)
+            
+            if len(valid_recs) >= 1:
+                logger.info(f"✅ OpenAI generó {len(valid_recs)} recomendaciones válidas")
+                return valid_recs
+            else:
+                logger.warning("❌ OpenAI no generó recomendaciones válidas, usando fallback")
+                return self._fallback_recommendations(client_data.get("churn_score", 0))
 
-            valid_recs: List[Dict[str, Any]] = []
-            for rec in recommendations:
-                if isinstance(rec, dict) and "type" in rec and "description" in rec:
-                    rec.setdefault("urgency", "media")
-                    rec.setdefault("channel", "email_personalizado")
-                    rec.setdefault("reasoning", "Recomendación basada en análisis de perfil y temporada LATAM")
-                    valid_recs.append(rec)
-
-            if not valid_recs:
-                raise ValueError("La IA devolvió un JSON sin elementos válidos.")
-            return valid_recs
-
+        except json.JSONDecodeError as e:
+            logger.error(f"❌ Error parseando JSON de OpenAI: {e}")
+            return self._fallback_recommendations(client_data.get("churn_score", 0))
         except Exception as e:
-            logger.error(f"Error generando recomendaciones con OpenAI: {e}")
-            raise
+            logger.error(f"❌ Error general en OpenAI recommendations: {e}")
+            return self._fallback_recommendations(client_data.get("churn_score", 0))
 
     def generate_client_suggestions(
         self,
         client_data: Dict[str, Any],
         purchase_history: List[Dict[str, Any]],
-        days_since_last: int,
+        days_since_last: int
     ) -> List[Dict[str, Any]]:
-        """Genera sugerencias específicas con IA contextualizada (100% IA)."""
-        self._ensure_available()
+        """Genera sugerencias específicas con manejo ultra-robusto."""
+        
+        logger.info(f"💡 Generando sugerencias para cliente tras {days_since_last} días")
+        
+        if not self._is_available():
+            logger.warning("⚠️  OpenAI no disponible para sugerencias, usando fallback")
+            return self._fallback_suggestions()
 
-        context = self._prepare_enhanced_client_context(client_data, purchase_history)
-        season = get_latam_season(country_or_city=client_data.get("country") or client_data.get("city"))
-        estado = "🔴 CRÍTICO" if days_since_last > 90 else "🟡 EN RIESGO" if days_since_last > 45 else "🟢 ACTIVO"
-
-        prompt = f"""Eres Carlos, consultor senior de experiencia del cliente para fashion retail en LATAM.
-Optimiza AOV y NPS, cuidando coherencia con temporada LATAM '{season}'.
+        try:
+            context = self._prepare_client_context(client_data, purchase_history)
+            
+            prompt = f"""Eres un consultor senior de experiencia del cliente especializado en fashion e-commerce.
 
 CLIENTE ANALIZADO:
 {context}
 
 CONTEXTO ADICIONAL:
 - Días desde última compra: {days_since_last}
-- Estado del cliente: {estado}
+- Estado: {"🔴 CRÍTICO" if days_since_last > 90 else "🟡 RIESGO" if days_since_last > 45 else "🟢 ACTIVO"}
 
-TU OBJETIVO:
-Crear 2-3 sugerencias que mejoren la experiencia y fidelicen al cliente a largo plazo.
+GENERA exactamente 2-3 sugerencias específicas en formato JSON:
 
-ENFOQUE ESTRATÉGICO:
-- Si es cliente crítico (>90 días): REACTIVACIÓN con alto valor percibido
-- En riesgo (45-90 días): RETENCIÓN con relevancia personal
-- Activo (<45 días): CRECIMIENTO con upsell/cross-sell
-
-FORMATO JSON ESTRICTO:
 [
   {{
-    "type": "product_bundle|experience_upgrade|vip_program|personal_styling|seasonal_collection",
-    "title": "Título atractivo (máx 50 caracteres)",
-    "description": "Descripción detallada con productos/categorías específicas y referencia a temporada '{season}'",
-    "value_proposition": "¿Por qué es irresistible para ESTE cliente?",
-    "implementation": "Pasos ejecutables en tienda/online",
-    "priority": "crítica|alta|media",
-    "expected_revenue_increase": "+15-30%|+10-20%|+5-15%",
-    "timeline": "inmediato|1_semana|1_mes"
+    "type": "product_bundle|experience_upgrade|personal_service|seasonal_offer",
+    "title": "Título específico (máx 60 caracteres)",
+    "description": "Descripción detallada con productos/categorías específicas del historial",
+    "priority": "alta|media|baja",
+    "expected_impact": "Impacto esperado específico y medible"
   }}
 ]
 
-Responde SOLO con JSON válido."""
-        try:
+Responde SOLO con JSON válido, sin explicaciones adicionales."""
+
             response = self.client.chat.completions.create(
                 model=self._model,
                 messages=[
-                    {"role": "system", "content": "Eres Carlos, consultor senior de CX para moda en LATAM."},
-                    {"role": "user", "content": prompt},
+                    {"role": "system", "content": "Eres un experto en CX para fashion retail. Respondes solo con JSON."},
+                    {"role": "user", "content": prompt}
                 ],
-                max_tokens=900,
+                max_tokens=800,
                 temperature=0.8,
+                timeout=30
             )
-            content = response.choices[0].message.content.strip()
-            suggestions = self._safe_json_parse(content)
 
-            if isinstance(suggestions, dict):
-                suggestions = [suggestions]
+            content = response.choices[0].message.content
+            if not content:
+                raise Exception("Respuesta vacía de OpenAI")
+
+            suggestions = self._safe_json_parse(content.strip())
+            
             if not isinstance(suggestions, list):
-                raise ValueError("La IA no devolvió una lista JSON válida de sugerencias.")
-
-            valid_suggestions: List[Dict[str, Any]] = []
-            for sug in suggestions:
-                if isinstance(sug, dict) and "title" in sug and "description" in sug:
+                suggestions = [suggestions] if isinstance(suggestions, dict) else []
+            
+            # Validar sugerencias
+            valid_suggestions = []
+            for sug in suggestions[:4]:  # Máximo 4
+                if isinstance(sug, dict) and all(key in sug for key in ["title", "description"]):
+                    # Añadir defaults
                     sug.setdefault("priority", "media")
+                    sug.setdefault("expected_impact", "Mejora en engagement del cliente")
+                    
+                    # Limpiar campos
+                    for field in ["title", "description", "priority", "expected_impact"]:
+                        if field in sug:
+                            sug[field] = str(sug[field]).strip()[:400]
+                    
                     valid_suggestions.append(sug)
-
-            if not valid_suggestions:
-                raise ValueError("La IA devolvió un JSON sin elementos válidos.")
-            return valid_suggestions
+                    
+            if valid_suggestions:
+                logger.info(f"✅ OpenAI generó {len(valid_suggestions)} sugerencias válidas")
+                return valid_suggestions
+            else:
+                logger.warning("❌ Sugerencias de OpenAI no válidas, usando fallback")
+                return self._fallback_suggestions()
 
         except Exception as e:
-            logger.error(f"Error generando sugerencias con OpenAI: {e}")
-            raise
+            logger.error(f"❌ Error generando sugerencias: {e}")
+            return self._fallback_suggestions()
 
     def analyze_sentiment(self, text: str) -> Dict[str, Any]:
-        """Análisis de sentimiento con contexto de moda LATAM (100% IA)."""
-        self._ensure_available()
+        """Análisis de sentimiento robusto."""
+        if not text or not isinstance(text, str):
+            return self._fallback_sentiment()
+            
+        if not self._is_available():
+            return self._fallback_sentiment()
 
-        prompt = f"""Eres un analista experto en customer feedback para retail de moda en LATAM.
+        try:
+            # Limitar longitud del texto
+            text_clean = text.strip()[:2000]
+            
+            prompt = f"""Analiza el sentimiento del siguiente feedback de cliente de tienda de ropa online:
 
-TEXTO A ANALIZAR:
-\"\"\"{text}\"\"\"
+TEXTO: "{text_clean}"
 
-Devuelve SOLO JSON:
+Responde SOLO con este JSON:
 {{
   "sentiment": "very_positive|positive|neutral|negative|very_negative",
   "confidence": 0.XX,
-  "emotions": ["joy","trust","excitement","disappointment","frustration","anger"],
-  "key_phrases": ["frases importantes extraídas"],
-  "customer_intent": "compra|queja|consulta|devolución|elogio|sugerencia",
-  "urgency_level": "critico|alto|medio|bajo",
-  "recommended_action": "respuesta_inmediata|seguimiento_24h|respuesta_estandar|archivar",
-  "business_impact": "alto_valor|oportunidad_mejora|cliente_satisfecho|riesgo_churn"
+  "emotions": ["emotion1", "emotion2"],
+  "key_phrases": ["frase1", "frase2"],
+  "customer_intent": "compra|queja|consulta|devolución|elogio",
+  "urgency_level": "crítico|alto|medio|bajo"
 }}"""
-        try:
+
             response = self.client.chat.completions.create(
                 model=self._model,
                 messages=[
-                    {"role": "system", "content": "Eres un analista experto en customer sentiment para retail en LATAM."},
-                    {"role": "user", "content": prompt},
+                    {"role": "system", "content": "Eres un analista de customer sentiment para retail. Respondes solo JSON."},
+                    {"role": "user", "content": prompt}
                 ],
-                max_tokens=400,
+                max_tokens=300,
                 temperature=0.2,
+                timeout=20
             )
-            content = response.choices[0].message.content.strip()
-            result = self._safe_json_parse(content)
 
+            content = response.choices[0].message.content
+            if not content:
+                raise Exception("Respuesta vacía")
+
+            result = self._safe_json_parse(content.strip())
+            
             if not isinstance(result, dict):
-                raise ValueError("Respuesta de sentiment no válida")
+                raise ValueError("Resultado no es objeto")
 
-            # Asegurar campos mínimos
+            # Validar y limpiar campos
             result.setdefault("sentiment", "neutral")
             result.setdefault("confidence", 0.5)
             result.setdefault("emotions", [])
@@ -644,31 +512,96 @@ Devuelve SOLO JSON:
             return result
 
         except Exception as e:
-            logger.error(f"Error analizando sentimiento: {e}")
-            raise
+            logger.error(f"❌ Error en análisis de sentimiento: {e}")
+            return self._fallback_sentiment()
 
-    # --------- Pasarela para conocimiento empresarial --------- #
-
-    def add_business_knowledge(self, content: str, title: str, category: str = "general") -> str:
-        """Añade conocimiento empresarial al sistema."""
-        return self.knowledge_base.add_text_knowledge(content, title, category)
-
-    def add_pdf_knowledge(self, pdf_content: bytes, category: str = "general") -> str:
-        """Añade conocimiento desde PDF."""
-        return self.knowledge_base.add_pdf_knowledge(pdf_content, category)
-
-    def get_knowledge_summary(self) -> Dict[str, Any]:
-        """Obtiene resumen del conocimiento disponible."""
-        summary: Dict[str, Any] = {}
-        for category, docs in self.knowledge_base.knowledge_data.items():
-            if isinstance(docs, dict):
-                summary[category] = {
-                    "documents": len(docs),
-                    "titles": [
-                        (doc.get("title", doc_id) if isinstance(doc, dict) else str(doc_id))
-                        for doc_id, doc in docs.items()
-                    ],
+    def _fallback_recommendations(self, churn_score: int) -> List[Dict[str, Any]]:
+        """Fallback inteligente para recomendaciones."""
+        churn = int(churn_score or 0)
+        season = self._get_current_season()
+        
+        if churn >= 80:
+            return [
+                {
+                    "type": "urgent_reactivation",
+                    "description": f"Oferta flash 30% OFF en colección {season} válida 48h + envío gratis",
+                    "urgency": "alta",
+                    "channel": "whatsapp",
+                    "reasoning": "Cliente en riesgo crítico requiere intervención urgente con alto valor"
+                },
+                {
+                    "type": "personal_contact",
+                    "description": "Llamada personal de 10 min para entender sus necesidades actuales",
+                    "urgency": "alta", 
+                    "channel": "llamada",
+                    "reasoning": "Contacto humano directo para reconectar emocionalmente"
                 }
-            else:
-                summary[category] = "Built-in knowledge"
-        return summary
+            ]
+        elif churn >= 50:
+            return [
+                {
+                    "type": "targeted_offer",
+                    "description": f"Descuento 20% personalizado en su categoría favorita + preview {season}",
+                    "urgency": "media",
+                    "channel": "email",
+                    "reasoning": "Cliente en riesgo medio necesita incentivo relevante personalizado"
+                },
+                {
+                    "type": "loyalty_program",
+                    "description": "Puntos de fidelidad dobles en próximas 2 compras + gift sorpresa",
+                    "urgency": "media",
+                    "channel": "email",
+                    "reasoning": "Reforzar conexión con programa de lealtad y generar exclusividad"
+                }
+            ]
+        else:
+            return [
+                {
+                    "type": "cross_sell",
+                    "description": f"Bundle recomendado: combina productos de sus categorías favoritas con 15% extra",
+                    "urgency": "baja",
+                    "channel": "email", 
+                    "reasoning": "Cliente estable, oportunidad de aumentar ticket promedio con productos complementarios"
+                }
+            ]
+
+    def _fallback_suggestions(self) -> List[Dict[str, Any]]:
+        """Fallback inteligente para sugerencias."""
+        return [
+            {
+                "type": "product_bundle",
+                "title": "Pack personalizado basado en historial",
+                "description": "Crear bundle con 2-3 productos de categorías más compradas con descuento del 15%",
+                "priority": "alta",
+                "expected_impact": "Incremento del 20% en ticket promedio"
+            },
+            {
+                "type": "engagement_action",
+                "title": "Quiz de estilo personal en 60 segundos",
+                "description": "Encuesta interactiva para conocer preferencias de colores, estilos y ocasiones de uso",
+                "priority": "media",
+                "expected_impact": "Mejora del 30% en precisión de recomendaciones futuras"
+            }
+        ]
+
+    def _fallback_sentiment(self) -> Dict[str, Any]:
+        """Fallback para análisis de sentimiento."""
+        return {
+            "sentiment": "neutral",
+            "confidence": 0.5,
+            "emotions": [],
+            "key_phrases": [],
+            "customer_intent": "consulta",
+            "urgency_level": "medio",
+            "ai_powered": False
+        }
+
+    def get_status(self) -> Dict[str, Any]:
+        """Estado del servicio OpenAI."""
+        return {
+            "available": self._is_available(),
+            "model": self._model,
+            "features": ["recommendations", "suggestions", "sentiment_analysis"],
+            "fallback_enabled": True,
+            "last_check": datetime.now().isoformat()
+        }
