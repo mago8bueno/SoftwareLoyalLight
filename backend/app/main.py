@@ -1,4 +1,5 @@
 # backend/app/main.py - VERSIÓN CORREGIDA CON CORS ACTUALIZADO
+
 import os
 import uvicorn
 from fastapi import FastAPI
@@ -46,40 +47,36 @@ def _as_list(value) -> list[str]:
 
 # ✅ DOMINIOS CORREGIDOS - AMBOS dominios de Vercel
 allowed_origins = _as_list(getattr(settings, "ALLOWED_HOSTS", None)) or [
-    # 🔧 AMBOS DOMINIOS DE VERCEL que aparecen en los logs
+    # Producción (Vercel)
     "https://software-loyal-light-jtxufeu11-loyal-lights-projects.vercel.app",
     "https://software-loyal-light.vercel.app",
-    
+
     # Desarrollo local
-    "http://localhost:3000", 
+    "http://localhost:3000",
     "http://127.0.0.1:3000",
-    "http://localhost:5173", 
+    "http://localhost:5173",
     "http://127.0.0.1:5173",
-    
-    # Railway mismo (si sirves frontend desde ahí)
+
+    # Railway (si sirves frontend desde ahí)
     "https://softwareloyallight-production.up.railway.app",
-    
-    # ⚠️ TEMPORALMENTE para debug - REMOVER EN PRODUCCIÓN
-    "*",  # Permite TODOS los orígenes mientras debuggeamos
+    # ❌ IMPORTANTE: no usar "*" con allow_credentials=True
 ]
 
 print(f"[CORS] Configurando CORS con {len(allowed_origins)} orígenes permitidos:")
 for origin in allowed_origins:
     print(f"  ✅ {origin}")
 
-# Agregar middleware CORS con configuración robusta
 app.add_middleware(
     CORSMiddleware,
     allow_origins=allowed_origins,
-    # 🔧 REGEX CORREGIDO para capturar el formato real de Vercel
+    # Regex para previews/aliases de Vercel (ajusta si cambia el nombre del proyecto)
     allow_origin_regex=r"https://software-loyal-light.*\.vercel\.app",
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "HEAD", "PATCH"],
     allow_headers=[
         "*",
-        # Específicamente permitir headers que usa tu frontend
         "Authorization",
-        "Content-Type", 
+        "Content-Type",
         "X-User-Id",
         "Accept",
         "Origin",
@@ -87,12 +84,7 @@ app.add_middleware(
         "X-Requested-With",
         "Cache-Control",
     ],
-    expose_headers=[
-        "Content-Length",
-        "Content-Type",
-        "Date",
-        "Server",
-    ],
+    expose_headers=["Content-Length", "Content-Type", "Date", "Server"],
 )
 
 # 🆕 Middleware de debugging CORS
@@ -102,26 +94,23 @@ async def cors_debug_middleware(request, call_next):
     origin = request.headers.get("origin")
     method = request.method
     path = str(request.url.path)
-    
+
     # Log requests importantes
     if method == "OPTIONS" or "/auth/" in path or "/analytics/" in path:
         print(f"🌐 CORS Request: {method} {path}")
         print(f"   Origin: {origin}")
         print(f"   Headers: {dict(request.headers)}")
-    
+
     response = await call_next(request)
-    
+
     # Verificar headers CORS en respuesta
     if method == "OPTIONS" or origin:
-        cors_headers = {
-            k: v for k, v in response.headers.items() 
-            if k.lower().startswith('access-control')
-        }
+        cors_headers = {k: v for k, v in response.headers.items() if k.lower().startswith("access-control")}
         if cors_headers:
             print(f"✅ CORS Headers en respuesta: {cors_headers}")
         else:
             print("❌ Sin headers CORS en respuesta")
-    
+
     return response
 
 # 4) Errores globales
@@ -139,10 +128,10 @@ app.include_router(admin_router,     prefix="/admin",     tags=["admin"])
 # 6) Health + Root endpoint
 def _health_response():
     return JSONResponse({
-        "status": "ok", 
+        "status": "ok",
         "version": settings.VERSION,
         "cors_enabled": True,
-        "allowed_origins": allowed_origins[:3],  # Solo mostrar algunos por seguridad
+        "allowed_origins": allowed_origins[:3],  # Mostrar algunos por seguridad
         "environment": os.getenv("ENVIRONMENT", "development")
     })
 
@@ -169,11 +158,11 @@ def test_cors():
 
 # 7) Run local o en contenedor
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 8000))  # Cambiar default a 8000 para desarrollo
+    port = int(os.environ.get("PORT", 8000))  # 8000 para desarrollo
     print(f"🚀 Iniciando servidor en puerto {port}")
     print(f"🔧 Debug mode: {settings.DEBUG}")
     print(f"🌐 CORS configurado para {len(allowed_origins)} orígenes")
-    
+
     uvicorn.run(
         "app.main:app",
         host="0.0.0.0",
