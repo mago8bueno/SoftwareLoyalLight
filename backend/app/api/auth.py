@@ -1,46 +1,40 @@
-# backend/app/api/auth.py - VERSIÓN CORREGIDA (usa solo columnas reales)
-
+# backend/app/api/auth.py — VERSIÓN CORREGIDA Y ENDURECIDA
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 import logging
 import traceback
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Request, status
 from pydantic import BaseModel, EmailStr
 from passlib.context import CryptContext
-import jwt
+import jwt  # PyJWT
 
 from app.db.supabase import supabase
 from app.core.settings import settings
 
-# Logger específico del módulo
 logger = logging.getLogger(__name__)
-
 router = APIRouter()
 
+# ==============================
+# Config
+# ==============================
 pwd_ctx = CryptContext(schemes=["bcrypt"], deprecated="auto")
-
 JWT_ALG = "HS256"
 JWT_TTL_HOURS = 24  # caducidad del token
 
-# ==============================
-# Utilidades
-# ==============================
 def _jwt_secret() -> str:
-    """Obtiene JWT secret con prioridad JWT_SECRET > SUPABASE_KEY."""
-    try:
-        if getattr(settings, "JWT_SECRET", None):
-            logger.info("✅ Usando JWT_SECRET configurado")
-            return str(settings.JWT_SECRET)
-        if getattr(settings, "SUPABASE_KEY", None):
-            logger.info("⚠️  Usando SUPABASE_KEY como JWT_SECRET fallback")
-            return str(settings.SUPABASE_KEY)
-        logger.error("❌ No se encontró JWT_SECRET ni SUPABASE_KEY")
-        raise ValueError("No JWT secret available")
-    except Exception as e:
-        logger.error(f"❌ Error obteniendo JWT secret: {e}")
-        raise HTTPException(status_code=500, detail="JWT configuration error")
+    """
+    Obtiene el secreto JWT con prioridad:
+    1) settings.JWT_SECRET
+    2) settings.SUPABASE_KEY (fallback)
+    """
+    if getattr(settings, "JWT_SECRET", None):
+        return str(settings.JWT_SECRET)
+    if getattr(settings, "SUPABASE_KEY", None):
+        return str(settings.SUPABASE_KEY)
+    logger.error("❌ No se encontró JWT_SECRET ni SUPABASE_KEY en settings")
+    raise HTTPException(status_code=500, detail="JWT configuration error")
 
 # ==============================
 # Schemas
@@ -51,7 +45,7 @@ class LoginIn(BaseModel):
 
 class UserOut(BaseModel):
     id: str
-    email: str  # usar str para no forzar formato en respuestas
+    email: str
     name: str | None = None
 
 class LoginOut(BaseModel):
@@ -64,15 +58,25 @@ class LoginOut(BaseModel):
 # ==============================
 @router.get("/health", tags=["auth", "debug"])
 def auth_health_check():
-    """Health check del servicio de auth."""
+    """
+    Health check del servicio de auth:
+    - Conexión Supabase básica
+    - Configuración JWT disponible
+    - bcrypt operativo
+    """
     try:
-        test_res = supabase.table("users").select("count", count="exact").limit(1).execute()
-        supabase_ok = not (hasattr(test_res, "error") and test_res.error)
+        # Supabase: consulta mínima válida
+        try:
+            res = supabase.table("users").select("id", count="exact").limit(1).execute()
+            supabase_ok = not (hasattr(res, "error") and res.error)
+        except Exception as e:
+            logger.warning(f"⚠️ Supabase health degradado: {type(e).__name__}: {e}")
+            supabase_ok = False
 
         # JWT
         try:
             secret = _jwt_secret()
-            jwt_ok = bool(secret and len(secret) > 10)
+            jwt_ok = bool(secret and len(secret) >= 16)
         except Exception:
             jwt_ok = False
 
@@ -83,14 +87,14 @@ def auth_health_check():
         except Exception:
             bcrypt_ok = False
 
-        status = "healthy" if (supabase_ok and jwt_ok and bcrypt_ok) else "degraded"
+        status_txt = "healthy" if (supabase_ok and jwt_ok and bcrypt_ok) else "degraded"
         return {
-            "status": status,
+            "status": status_txt,
             "supabase_connected": supabase_ok,
             "jwt_configured": jwt_ok,
             "bcrypt_working": bcrypt_ok,
             "timestamp": datetime.now(timezone.utc).isoformat(),
-            "version": "2.0",
+            "version": "2.1",
         }
     except Exception as e:
         logger.error(f"❌ Auth health check failed: {e}")
@@ -103,29 +107,31 @@ def auth_health_check():
 # ==============================
 # Login
 # ==============================
-@router.post("/login/", response_model=LoginOut)
+@router.post("/login/", response_model=LoginOut, status_code=status.HTTP_200_OK)
 async def login(payload: LoginIn, request: Request):
-    """Endpoint de login con tracing detallado."""
+    """
+    Endpoint de login:
+    - Busca usuario por email (normalizado).
+    - Verifica contraseña (bcrypt).
+    - Emite JWT con `sub`=user_id y `email`, `name`, `iat`, `exp`, `iss`, `aud`.
+    - Devuelve `access_token` + `token_type` + `user`.
+    """
     client_ip = request.client.host if request.client else "unknown"
     user_agent = request.headers.get("user-agent", "unknown")
 
     try:
-        logger.info("=" * 60)
-        logger.info(f"🔐 INICIO LOGIN para: {payload.email}")
-        logger.info(f"📍 IP: {client_ip}, UA: {user_agent[:80]}")
-
         # 1) Configuración JWT
         try:
             jwt_secret = _jwt_secret()
-            logger.info(f"🔑 JWT Secret length: {len(jwt_secret)}")
+        except HTTPException:
+            # ya logueado dentro de _jwt_secret
+            raise
         except Exception as e:
             logger.error(f"❌ Error configuración JWT: {e}")
             raise HTTPException(status_code=500, detail="Server configuration error: JWT")
 
-        # 2) Buscar usuario (pedimos SOLO columnas reales)
-        email_norm = str(payload.email).lower().strip()
-        logger.info(f"🔍 Buscando usuario: {email_norm}")
-
+        # 2) Buscar usuario (solo columnas reales)
+        email_norm = str(payload.email).strip().lower()
         try:
             res = (
                 supabase.table("users")
@@ -134,57 +140,46 @@ async def login(payload: LoginIn, request: Request):
                 .limit(1)
                 .execute()
             )
-
-            if hasattr(res, "error") and res.error:
-                error_msg = str(getattr(res.error, "message", res.error))
-                logger.error(f"❌ Error Supabase: {error_msg}")
-                raise HTTPException(status_code=500, detail=f"Database error: {error_msg}")
-
-            user_data = getattr(res, "data", None) or []
-            logger.info(f"👤 Registros obtenidos: {len(user_data)}")
-
-        except HTTPException:
-            raise
         except Exception as supabase_error:
             logger.error(f"❌ Excepción Supabase: {type(supabase_error).__name__}: {supabase_error}")
             logger.error(traceback.format_exc())
-            raise HTTPException(status_code=500, detail=f"Database connection failed: {str(supabase_error)}")
+            raise HTTPException(status_code=500, detail="Database connection failed")
 
+        if hasattr(res, "error") and res.error:
+            # Supabase devuelve .error en algunos fallos de consulta
+            error_msg = str(getattr(res.error, "message", res.error))
+            logger.error(f"❌ Error Supabase: {error_msg}")
+            raise HTTPException(status_code=500, detail="Database error")
+
+        user_data = getattr(res, "data", None) or []
         if not user_data:
-            logger.warning(f"⚠️  Usuario NO encontrado: {email_norm}")
+            # 401 para no filtrar existencia
             raise HTTPException(status_code=401, detail="Invalid email or password")
 
         user_row = user_data[0]
-        logger.info(f"✅ Usuario encontrado - ID: {user_row.get('id')}")
-        logger.info(f"📋 Campos disponibles: {list(user_row.keys())}")
+        user_id: str = str(user_row.get("id"))
+        user_email: str = str(user_row.get("email"))
+        user_name: str | None = user_row.get("name")
 
-        # 3) Verificar contraseña (usar exclusivamente 'hashed_password')
+        # 3) Verificar contraseña
         password_hash = user_row.get("hashed_password")
         if not password_hash:
+            # Usuario mal provisionado: tratar como credenciales inválidas
             logger.warning(f"Usuario sin hashed_password: {email_norm}")
-            # 401 para no exponer si existe o no
             raise HTTPException(status_code=401, detail="Invalid email or password")
 
         try:
-            logger.info("🔐 Verificando contraseña (bcrypt)...")
-            password_valid = pwd_ctx.verify(payload.password, password_hash)
-            logger.info(f"✅ Contraseña válida: {password_valid}")
+            if not pwd_ctx.verify(payload.password, password_hash):
+                raise HTTPException(status_code=401, detail="Invalid email or password")
+        except HTTPException:
+            raise
         except Exception as bcrypt_error:
             logger.error(f"❌ Error bcrypt: {type(bcrypt_error).__name__}: {bcrypt_error}")
             raise HTTPException(status_code=500, detail="Password verification failed")
 
-        if not password_valid:
-            logger.warning(f"⚠️  Contraseña INCORRECTA para: {email_norm}")
-            raise HTTPException(status_code=401, detail="Invalid email or password")
-
-        # 4) Preparar token
-        user_id = str(user_row["id"])
-        user_email = str(user_row["email"])
-        user_name = user_row.get("name")
-
+        # 4) Generar JWT
         now_utc = datetime.now(timezone.utc)
         exp_utc = now_utc + timedelta(hours=JWT_TTL_HOURS)
-
         claims = {
             "sub": user_id,
             "email": user_email,
@@ -197,12 +192,12 @@ async def login(payload: LoginIn, request: Request):
 
         try:
             token = jwt.encode(claims, jwt_secret, algorithm=JWT_ALG)
-            logger.info(f"🎟️ Token emitido (len={len(token)})")
         except Exception as jwt_error:
             logger.error(f"❌ Error JWT: {type(jwt_error).__name__}: {jwt_error}")
             logger.error(traceback.format_exc())
-            raise HTTPException(status_code=500, detail=f"Token generation failed: {str(jwt_error)}")
+            raise HTTPException(status_code=500, detail="Token generation failed")
 
+        # 5) Respuesta
         return LoginOut(
             access_token=token,
             token_type="bearer",
@@ -210,15 +205,19 @@ async def login(payload: LoginIn, request: Request):
         )
 
     except HTTPException as http_ex:
-        logger.error(f"🚫 HTTP Exception: {http_ex.status_code} - {http_ex.detail}")
+        # Logging conciso y sin datos sensibles
+        if http_ex.status_code >= 500:
+            logger.error(f"🚫 AUTH {http_ex.status_code}: {http_ex.detail}")
+        else:
+            logger.info(f"🚫 AUTH {http_ex.status_code}: {http_ex.detail} — IP={client_ip}")
         raise
     except Exception as e:
         logger.error("💥 ERROR CRÍTICO EN LOGIN")
-        logger.error(f"💥 Tipo: {type(e).__name__} | Mensaje: {e}")
+        logger.error(f"💥 {type(e).__name__}: {e}")
         logger.error(traceback.format_exc())
         raise HTTPException(
             status_code=500,
-            detail=f"Internal server error during authentication: {type(e).__name__}",
+            detail="Internal server error during authentication",
         )
 
 # ==============================
@@ -226,15 +225,14 @@ async def login(payload: LoginIn, request: Request):
 # ==============================
 @router.get("/debug/users", tags=["debug"])
 async def debug_users_list():
-    """Lista usuarios (sin contraseñas)."""
+    """Lista usuarios (sin contraseñas). Úsalo solo en DEBUG."""
     try:
         res = (
             supabase.table("users")
-            .select("id,email,name")  # solo columnas reales y sin password
+            .select("id,email,name")
             .limit(5)
             .execute()
         )
-
         if hasattr(res, "error") and res.error:
             error_msg = str(getattr(res.error, "message", res.error))
             return {"error": error_msg, "supabase_connected": False}
@@ -247,14 +245,13 @@ async def debug_users_list():
             "supabase_connected": True,
             "debug_timestamp": datetime.now(timezone.utc).isoformat(),
         }
-
     except Exception as e:
         logger.error(f"❌ Error en debug users: {e}")
         return {"error": str(e), "users_count": 0, "supabase_connected": False}
 
 @router.post("/test-jwt", tags=["debug"])
 async def test_jwt_generation():
-    """Test de generación y verificación de JWT."""
+    """Test de generación/verificación de JWT (DEBUG)."""
     try:
         secret = _jwt_secret()
         now = datetime.now(timezone.utc)
@@ -278,4 +275,3 @@ async def test_jwt_generation():
         }
     except Exception as e:
         return {"jwt_generation": "failed", "error": str(e)}
-
