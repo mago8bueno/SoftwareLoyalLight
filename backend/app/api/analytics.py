@@ -1,7 +1,8 @@
-# backend/app/api/analytics.py - VERSIÓN MEJORADA
-from fastapi import APIRouter, HTTPException, Depends
+# backend/app/api/analytics.py - VERSIÓN CON DEBUG AUTH
+
+from fastapi import APIRouter, HTTPException, Depends, Request
 from app.db.supabase import supabase
-from app.utils.auth import require_user  # ← AÑADIR autenticación
+from app.utils.auth import require_user
 import logging
 from datetime import date, timedelta
 from typing import Dict, List, Any, Optional
@@ -39,14 +40,24 @@ def safe_supabase_query(table_name: str, user_id: str, description: str) -> List
         return []
 
 @router.get("/overview")
-def analytics_overview(user_id: str = Depends(require_user)):
+def analytics_overview(request: Request, user_id: str = Depends(require_user)):
     """
     Devuelve un resumen analítico SOLO para el usuario actual.
-    Versión robusta que no falla si las vistas no existen.
+    Versión con debug mejorado de autenticación.
     """
     try:
-        logger.info(f"=== ANALYTICS OVERVIEW INICIADO ===")
-        logger.info(f"User ID recibido: {user_id}")
+        # Debug de headers recibidos
+        auth_header = request.headers.get("authorization", "")
+        user_agent = request.headers.get("user-agent", "")
+        origin = request.headers.get("origin", "")
+        
+        logger.info(f"=== ANALYTICS OVERVIEW DEBUG ===")
+        logger.info(f"User ID autenticado: {user_id}")
+        logger.info(f"Origin: {origin}")
+        logger.info(f"User-Agent: {user_agent[:50]}...")
+        logger.info(f"Auth header presente: {bool(auth_header)}")
+        if auth_header:
+            logger.info(f"Auth header preview: {auth_header[:30]}...")
         
         # 1. Top Customers (últimos 90 días)
         top_customers = safe_supabase_query(
@@ -106,16 +117,24 @@ def analytics_overview(user_id: str = Depends(require_user)):
             "debug_info": {
                 "server_date": date.today().isoformat(),
                 "supabase_connected": True,  # Si llegamos aquí, está conectado
-                "user_authenticated": True
+                "user_authenticated": True,
+                "auth_header_length": len(auth_header),
+                "origin": origin,
+                "request_id": f"analytics_{int(date.today().timestamp())}"
             }
         }
         
-        logger.info(f"=== RESPUESTA PREPARADA ===")
+        logger.info(f"=== RESPUESTA ANALYTICS PREPARADA ===")
         logger.info(f"Customers: {len(top_customers)}, Products: {len(top_products)}, "
                    f"Trend points: {len(trend_data)}, Churn alerts: {len(churn_data)}")
+        logger.info(f"Response size: ~{len(str(response))} chars")
         
         return response
         
+    except HTTPException as http_ex:
+        # Re-lanzar HTTPExceptions (401, 403, etc.)
+        logger.error(f"❌ HTTP Exception en analytics: {http_ex.status_code} - {http_ex.detail}")
+        raise
     except Exception as e:
         logger.error(f"=== ERROR CRÍTICO EN ANALYTICS ===")
         logger.error(f"User ID: {user_id}")
@@ -194,7 +213,7 @@ def churn_risk_details(user_id: str = Depends(require_user)):
         }
 
 @router.get("/debug")
-def debug_analytics(user_id: str = Depends(require_user)):
+def debug_analytics(request: Request, user_id: str = Depends(require_user)):
     """
     Endpoint de debug para verificar el estado del sistema.
     """
@@ -203,7 +222,7 @@ def debug_analytics(user_id: str = Depends(require_user)):
         logger.info(f"User ID: {user_id}")
         
         # Probar conexión a Supabase
-        test_result = supabase.table("auth").select("count", count="exact").execute()
+        test_result = supabase.table("users").select("count", count="exact").limit(1).execute()
         supabase_ok = not (hasattr(test_result, 'error') and test_result.error)
         
         # Verificar si las vistas existen
@@ -230,11 +249,20 @@ def debug_analytics(user_id: str = Depends(require_user)):
                     "has_data": False
                 }
         
+        # Headers de debug
+        headers_info = {
+            "authorization": bool(request.headers.get("authorization")),
+            "origin": request.headers.get("origin"),
+            "user-agent": request.headers.get("user-agent", "")[:50],
+            "content-type": request.headers.get("content-type"),
+        }
+        
         return {
             "user_id": user_id,
             "supabase_connection": supabase_ok,
             "server_time": date.today().isoformat(),
             "views_status": views_status,
+            "headers_info": headers_info,
             "debug_timestamp": str(date.today())
         }
         
