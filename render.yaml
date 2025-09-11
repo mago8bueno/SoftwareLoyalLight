@@ -1,0 +1,102 @@
+# render.yaml - Configuración para desplegar en Render
+# Ubicación: En la RAÍZ del proyecto (loyalty-mvp/render.yaml)
+
+services:
+  # =============================================
+  # BACKEND API - FastAPI + Uvicorn
+  # =============================================
+  - type: web
+    name: loyalty-backend
+    runtime: python3
+    
+    # Configuración del build
+    buildCommand: |
+      cd backend &&
+      pip install --upgrade pip &&
+      pip install -r requirements.txt
+    
+    # Comando para iniciar el servidor
+    startCommand: |
+      cd backend &&
+      uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    
+    # Variables de entorno (configurar en Render Dashboard)
+    envVars:
+      - key: SUPABASE_URL
+        sync: false  # Configurar manualmente en Render
+      - key: SUPABASE_KEY
+        sync: false
+      - key: SUPABASE_PROJECT_REF
+        sync: false
+      - key: JWT_SECRET
+        sync: false
+      - key: ENVIRONMENT
+        value: production
+      - key: DEBUG
+        value: false
+      - key: ALLOWED_ORIGINS
+        value: "https://loyalty-frontend.onrender.com,https://localhost:3000"
+    
+    # Plan y configuración
+    plan: free  # o 'starter' si necesitas más recursos
+    region: oregon  # o tu región preferida
+    
+    # Health check
+    healthCheckPath: /health
+    
+    # Headers y configuraciones adicionales
+    headers:
+      - path: /*
+        name: X-Frame-Options
+        value: DENY
+      - path: /*
+        name: X-Content-Type-Options
+        value: nosniff
+
+  # =============================================
+  # FRONTEND - Next.js (Opcional - también puedes usar Vercel)
+  # =============================================
+  - type: web
+    name: loyalty-frontend
+    runtime: node
+    
+    # Build del frontend
+    buildCommand: |
+      cd frontend &&
+      npm ci &&
+      npm run build
+    
+    # Iniciar Next.js en producción
+    startCommand: |
+      cd frontend &&
+      npm start
+    
+    # Variables de entorno para el frontend
+    envVars:
+      - key: NEXT_PUBLIC_SUPABASE_URL
+        sync: false
+      - key: NEXT_PUBLIC_SUPABASE_KEY
+        sync: false
+      - key: NEXT_PUBLIC_BACKEND_URL
+        value: https://loyalty-backend.onrender.com
+      - key: NODE_ENV
+        value: production
+    
+    plan: free
+    region: oregon
+
+# =============================================
+# BASES DE DATOS (Opcional - si no usas Supabase)
+# =============================================
+databases:
+  # Solo si quisieras PostgreSQL nativo en Render en lugar de Supabase
+  # - name: loyalty-db
+  #   databaseName: loyalty_production
+  #   user: loyalty_user
+  #   plan: free
+
+# =============================================
+# CONFIGURACIONES GLOBALES
+# =============================================
+previewsEnabled: true  # Habilita preview deployments para PRs
+rootDir: .  # Directorio raíz del repositorio
