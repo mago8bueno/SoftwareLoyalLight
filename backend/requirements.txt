@@ -1,60 +1,11 @@
-# backend/requirements.txt - Dependencias de producción para Render
-
-# =============================================
-# FRAMEWORK PRINCIPAL
-# =============================================
-fastapi==0.104.1
-uvicorn[standard]==0.24.0
-pydantic==2.5.0
-pydantic-settings==2.1.0
-
-# =============================================
-# BASE DE DATOS Y AUTH
-# =============================================
-supabase==2.3.0
-postgrest==0.13.0
-storage3==0.7.0
-
-# JWT y seguridad
-PyJWT==2.8.0
-python-multipart==0.0.6
-passlib[bcrypt]==1.7.4
-
-# =============================================
-# HTTP Y CORS
-# =============================================
-httpx==0.25.2
-python-jose[cryptography]==3.3.0
-requests==2.31.0
-
-# =============================================
-# UTILIDADES
-# =============================================
-python-dotenv==1.0.0
-typing-extensions==4.8.0
-
-# Logging y monitoreo
-loguru==0.7.2
-
-# =============================================
-# DESARROLLO (comentar en producción si quieres optimizar)
-# =============================================
-# pytest==7.4.3
-# pytest-asyncio==0.21.1
-
-# =============================================
-# SERVIDOR DE PRODUCCIÓN
-# =============================================
-gunicorn==21.2.0
-
-# =============================================
-# VARIABLES DE ENTORNO Y CONFIGURACIÓN
-# =============================================
-# Estas se configuran en Render Dashboard, no aquí:
-# - SUPABASE_URL
-# - SUPABASE_KEY  
-# - SUPABASE_PROJECT_REF
-# - JWT_SECRET
-# - ALLOWED_ORIGINS
-# - ENVIRONMENT=production
-# - DEBUG=false
+fastapi
+uvicorn[standard]
+supabase
+httpx
+pydantic-settings>=0.1.0
+email-validator
+python-multipart>=0.0.9
+python-dotenv
+passlib[bcrypt]
+openai>=1.0.0
+PyJWT
