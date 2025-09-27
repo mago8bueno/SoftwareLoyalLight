@@ -1,84 +1,104 @@
-# app/utils/auth.py
-from datetime import datetime, timedelta, timezone
-from typing import Any, Dict
-import os
+# backend/app/api/auth.py
+from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel
+from datetime import datetime, timezone
 
-try:
-    import jwt  # PyJWT
-except Exception:  # pragma: no cover
-    jwt = None
+# Define el router ANTES de cualquier import pesado
+router = APIRouter()
+__all__ = ["router"]  # export explícito
 
-try:
-    from passlib.hash import bcrypt
-except Exception:  # pragma: no cover
-    bcrypt = None
+# ---- Modelos ----
+class LoginRequest(BaseModel):
+    email: str
+    password: str
 
-from app.core.settings import settings
-
-ALGORITHM = "HS256"
-
-def _get_secret() -> str:
-    # Prioriza settings, luego env, luego fallback inseguro (solo para dev)
-    return getattr(settings, "JWT_SECRET", None) or os.getenv("JWT_SECRET", "dev-insecure-secret")
-
-def create_jwt_token(payload: Dict[str, Any], expires_minutes: int = 60 * 24) -> str:
+# ---- Endpoints ----
+@router.post("/login")
+async def login(request: LoginRequest):
     """
-    Crea un JWT HS256 con 'exp' e 'iat'.
+    Endpoint de login principal.
+    Lazy-import para evitar romper el import del módulo si falta alguna dependencia.
     """
-    if jwt is None:
-        raise RuntimeError("PyJWT no instalado. Añade 'PyJWT' a requirements.")
-    now = datetime.now(timezone.utc)
-    to_encode = {
-        **payload,
-        "iat": int(now.timestamp()),
-        "exp": int((now + timedelta(minutes=expires_minutes)).timestamp()),
-    }
-    token = jwt.encode(to_encode, _get_secret(), algorithm=ALGORITHM)
-    # PyJWT>=2 devuelve str, en versiones antiguas bytes
-    return token if isinstance(token, str) else token.decode("utf-8")
-
-def verify_password(plain_password: str, stored_hash: str) -> bool:
-    """
-    Verifica contraseña:
-      - Si el hash parece bcrypt ($2...) y passlib está disponible -> bcrypt.verify
-      - Si no, hace comparación directa (solo útil en dev si guardaste en texto claro)
-    """
-    if not stored_hash:
-        return False
-    # Heurística de bcrypt
-    is_bcrypt = stored_hash.startswith("$2a$") or stored_hash.startswith("$2b$") or stored_hash.startswith("$2y$")
-    if is_bcrypt and bcrypt is not None:
-        try:
-            return bcrypt.verify(plain_password, stored_hash)
-        except Exception:
-            return False
-    # Fallback (no recomendado en producción)
-    return plain_password == stored_hash
-
-def decode_jwt_debug(token: str) -> Dict[str, Any]:
-    """
-    Decodifica SIN validar firma/exp para debug.
-    """
-    if jwt is None:
-        raise RuntimeError("PyJWT no instalado. Añade 'PyJWT' a requirements.")
     try:
-        header = jwt.get_unverified_header(token)
-    except Exception as e:
-        header = {"error": f"header inválido: {e.__class__.__name__}: {e}"}
-    try:
-        payload = jwt.decode(token, options={"verify_signature": False, "verify_exp": False})
-    except Exception as e:
-        payload = {"error": f"payload inválido: {e.__class__.__name__}: {e}"}
-    return {"header": header, "payload": payload}
+        from app.db.supabase import supabase
+        from app.utils.auth import create_jwt_token, verify_password
 
-def test_jwt_secret() -> Dict[str, Any]:
+        # Buscar usuario en Supabase
+        user_result = (
+            supabase.table("users")
+            .select("*")
+            .eq("email", request.email)
+            .single()
+            .execute()
+        )
+
+        if not user_result or not user_result.data:
+            raise HTTPException(status_code=401, detail="Credenciales inválidas")
+
+        user = user_result.data
+
+        # Verificar contraseña
+        if not verify_password(request.password, user.get("password_hash", "")):
+            raise HTTPException(status_code=401, detail="Credenciales inválidas")
+
+        # Crear JWT token
+        token = create_jwt_token({"user_id": user["id"], "email": user["email"]})
+
+        return {
+            "access_token": token,
+            "token_type": "bearer",
+            "user": {
+                "id": user["id"],
+                "email": user["email"],
+                "name": user.get("name"),
+                "role": user.get("role", "user"),
+            },
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        # Log opcional aquí
+        raise HTTPException(status_code=500, detail="Error interno del servidor")
+
+@router.post("/debug-jwt", tags=["debug"])
+async def debug_jwt_token(payload: dict):
     """
-    Devuelve info diagnóstica del secreto JWT (sin exponerlo).
+    Endpoint de debug para diagnosticar problemas JWT.
+    Payload: {"token": "jwt_token_here"}
     """
-    secret = _get_secret()
-    return {
-        "configured": bool(secret),
-        "length": len(secret or ""),
-        "preview": (secret[:2] + "***" + secret[-2:]) if secret and len(secret) >= 4 else "***",
-        "algorithm": ALGORITHM,
-    }
+    try:
+        from app.utils.auth import decode_jwt_debug, test_jwt_secret
+        from app.core.settings import settings
+
+        token = (payload.get("token") or "").strip()
+        if not token:
+            return {"error": "Token requerido en payload"}
+
+        secret_info = test_jwt_secret()
+        token_info = decode_jwt_debug(token)
+
+        settings_info = {
+            "has_jwt_secret": bool(getattr(settings, "JWT_SECRET", None)),
+            "has_supabase_key": bool(getattr(settings, "SUPABASE_KEY", None)),
+            "jwt_secret_length": len(str(getattr(settings, "JWT_SECRET", "")))
+            if getattr(settings, "JWT_SECRET", None)
+            else 0,
+            "supabase_key_length": len(str(getattr(settings, "SUPABASE_KEY", "")))
+            if getattr(settings, "SUPABASE_KEY", None)
+            else 0,
+        }
+
+        return {
+            "secret_config": secret_info,
+            "token_analysis": token_info,
+            "settings_info": settings_info,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+
+    except Exception as e:
+        return {
+            "error": str(e),
+            "type": type(e).__name__,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
