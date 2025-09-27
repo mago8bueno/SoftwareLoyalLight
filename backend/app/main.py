@@ -1,4 +1,4 @@
-# backend/app/main.py - VERSIÓN CORREGIDA PARA RAILWAY
+# backend/app/main.py - VERSIÓN CON ROUTERS ACTIVOS (Railway)
 import os
 import uvicorn
 from fastapi import FastAPI
@@ -10,14 +10,14 @@ from app.core.settings import settings
 from app.utils.logging import setup_logging
 from app.utils.errors import register_exception_handlers
 
-# 🚨 ROUTERS COMENTADOS TEMPORALMENTE - DESCOMENTA CUANDO EXISTAN
-# from app.api.auth import router as auth_router
-# from app.api.clients import router as clients_router
-# from app.api.items import router as items_router
-# from app.api.purchases import router as purchases_router
-# from app.api.analytics import router as analytics_router
-# from app.api.ai import router as ai_router
-# from app.api.admin import router as admin_router
+# ✅ ROUTERS ACTIVOS
+from app.api.auth import router as auth_router
+from app.api.clients import router as clients_router
+from app.api.items import router as items_router
+from app.api.purchases import router as purchases_router
+from app.api.analytics import router as analytics_router
+from app.api.ai import router as ai_router
+from app.api.admin import router as admin_router
 
 # 1) Logging
 setup_logging()
@@ -35,7 +35,7 @@ MEDIA_DIR = os.path.join(os.getcwd(), "media")
 os.makedirs(MEDIA_DIR, exist_ok=True)
 app.mount("/media", StaticFiles(directory=MEDIA_DIR), name="media")
 
-# 3) CORS - CONFIGURACIÓN CORREGIDA
+# 3) CORS - CONFIGURACIÓN
 def _as_list(value) -> list[str]:
     """Acepta list directa o string 'a,b,c' proveniente de env."""
     if value is None:
@@ -44,42 +44,39 @@ def _as_list(value) -> list[str]:
         return [str(v).strip() for v in value if str(v).strip()]
     return [v.strip() for v in str(value).split(",") if v.strip()]
 
-# ✅ DOMINIOS CORREGIDOS - AMBOS dominios de Vercel
+# ✅ DOMINIOS PERMITIDOS
 allowed_origins = _as_list(getattr(settings, "ALLOWED_HOSTS", None)) or [
-    # 🔧 AMBOS DOMINIOS DE VERCEL que aparecen en los logs
+    # Vercel
     "https://software-loyal-light-jtxufeu11-loyal-lights-projects.vercel.app",
     "https://software-loyal-light.vercel.app",
-    
+
     # Desarrollo local
-    "http://localhost:3000", 
+    "http://localhost:3000",
     "http://127.0.0.1:3000",
-    "http://localhost:5173", 
+    "http://localhost:5173",
     "http://127.0.0.1:5173",
-    
-    # Railway mismo (si sirves frontend desde ahí)
+
+    # Railway (si sirves frontend desde ahí)
     "https://softwareloyallight-production.up.railway.app",
-    
-    # ⚠️ TEMPORALMENTE para debug - REMOVER EN PRODUCCIÓN
-    "*",  # Permite TODOS los orígenes mientras debuggeamos
+
+    # ⚠️ TEMPORAL PARA DEBUG (quita en prod)
+    "*",
 ]
 
 print(f"[CORS] Configurando CORS con {len(allowed_origins)} orígenes permitidos:")
 for origin in allowed_origins:
     print(f"  ✅ {origin}")
 
-# Agregar middleware CORS con configuración robusta
 app.add_middleware(
     CORSMiddleware,
     allow_origins=allowed_origins,
-    # 🔧 REGEX CORREGIDO para capturar el formato real de Vercel
     allow_origin_regex=r"https://software-loyal-light.*\.vercel\.app",
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "HEAD", "PATCH"],
     allow_headers=[
         "*",
-        # Específicamente permitir headers que usa tu frontend
         "Authorization",
-        "Content-Type", 
+        "Content-Type",
         "X-User-Id",
         "Accept",
         "Origin",
@@ -98,80 +95,48 @@ app.add_middleware(
 # 🆕 Middleware de debugging CORS
 @app.middleware("http")
 async def cors_debug_middleware(request, call_next):
-    """Debug middleware para troubleshooting CORS"""
     origin = request.headers.get("origin")
     method = request.method
     path = str(request.url.path)
-    
-    # Log requests importantes
+
     if method == "OPTIONS" or "/auth/" in path or "/analytics/" in path:
         print(f"🌐 CORS Request: {method} {path}")
         print(f"   Origin: {origin}")
         print(f"   Headers: {dict(request.headers)}")
-    
+
     response = await call_next(request)
-    
-    # Verificar headers CORS en respuesta
+
     if method == "OPTIONS" or origin:
         cors_headers = {
-            k: v for k, v in response.headers.items() 
+            k: v for k, v in response.headers.items()
             if k.lower().startswith('access-control')
         }
         if cors_headers:
             print(f"✅ CORS Headers en respuesta: {cors_headers}")
         else:
             print("❌ Sin headers CORS en respuesta")
-    
+
     return response
 
 # 4) Errores globales
 register_exception_handlers(app)
 
-# 5) ROUTERS COMENTADOS TEMPORALMENTE - DESCOMENTA CUANDO EXISTAN
-# app.include_router(auth_router,      prefix="/auth",      tags=["auth"])
-# app.include_router(clients_router,   prefix="/clients",   tags=["clients"])
-# app.include_router(items_router,     prefix="/items",     tags=["items"])
-# app.include_router(purchases_router, prefix="/purchases", tags=["purchases"])
-# app.include_router(analytics_router, prefix="/analytics", tags=["analytics"])
-# app.include_router(ai_router,        prefix="/ai",        tags=["ai"])
-# app.include_router(admin_router,     prefix="/admin",     tags=["admin"])
-
-# 🆕 ENDPOINTS BÁSICOS TEMPORALES - PARA QUE FUNCIONE SIN ROUTERS
-@app.get("/auth/test")
-def auth_test():
-    return {"message": "Auth router coming soon", "status": "placeholder"}
-
-@app.get("/clients")
-def clients_placeholder():
-    return {"clients": [], "status": "placeholder"}
-
-@app.get("/items")
-def items_placeholder():
-    return {"items": [], "status": "placeholder"}
-
-@app.get("/purchases")
-def purchases_placeholder():
-    return {"purchases": [], "status": "placeholder"}
-
-@app.get("/analytics")
-def analytics_placeholder():
-    return {"analytics": "coming soon", "status": "placeholder"}
-
-@app.get("/ai")
-def ai_placeholder():
-    return {"ai": "coming soon", "status": "placeholder"}
-
-@app.get("/admin")
-def admin_placeholder():
-    return {"admin": "coming soon", "status": "placeholder"}
+# 5) ROUTERS
+app.include_router(auth_router,      prefix="/auth",      tags=["auth"])
+app.include_router(clients_router,   prefix="/clients",   tags=["clients"])
+app.include_router(items_router,     prefix="/items",     tags=["items"])
+app.include_router(purchases_router, prefix="/purchases", tags=["purchases"])
+app.include_router(analytics_router, prefix="/analytics", tags=["analytics"])
+app.include_router(ai_router,        prefix="/ai",        tags=["ai"])
+app.include_router(admin_router,     prefix="/admin",     tags=["admin"])
 
 # 6) Health + Root endpoint
 def _health_response():
     return JSONResponse({
-        "status": "ok", 
+        "status": "ok",
         "version": settings.VERSION,
         "cors_enabled": True,
-        "allowed_origins": allowed_origins[:3],  # Solo mostrar algunos por seguridad
+        "allowed_origins": allowed_origins[:3],  # muestra algunos por seguridad
         "environment": os.getenv("ENVIRONMENT", "development"),
         "server": "Railway",
         "message": "🚂 Backend funcionando en Railway!"
@@ -193,7 +158,6 @@ def health_check():
 def test_cors():
     return {
         "message": "CORS is working!",
-        "timestamp": "2025-01-21T12:00:00Z",
         "server": "Railway",
         "cors_configured": True,
         "frontend_urls": [
@@ -217,15 +181,14 @@ def config_check():
 # 7) Run local o en contenedor
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8000))
-    
+
     print("🚂 ===== RAILWAY DEPLOYMENT =====")
     print(f"🚀 Iniciando servidor en puerto {port}")
     print(f"🔧 Debug mode: {settings.DEBUG}")
     print(f"🌐 CORS configurado para {len(allowed_origins)} orígenes")
-    print("✅ Routers temporalmente deshabilitados")
+    print("✅ Routers habilitados: auth, clients, items, purchases, analytics, ai, admin")
     print("🎯 Endpoints disponibles: /, /health, /test-cors, /config-check")
-    print("📋 Placeholders: /auth/test, /clients, /items, /purchases, /analytics, /ai, /admin")
-    
+
     uvicorn.run(
         "app.main:app",
         host="0.0.0.0",
