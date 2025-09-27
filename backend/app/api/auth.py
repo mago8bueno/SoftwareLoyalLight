@@ -1,5 +1,11 @@
-# Agregar este endpoint al final de backend/app/api/auth.py
+# backend/app/api/auth.py
+from fastapi import APIRouter
+from datetime import datetime, timezone
+from app.core.settings import settings
 
+router = APIRouter()
+
+# Agregar este endpoint al final de backend/app/api/auth.py
 @router.post("/debug-jwt", tags=["debug"])
 async def debug_jwt_token(payload: dict):
     """
