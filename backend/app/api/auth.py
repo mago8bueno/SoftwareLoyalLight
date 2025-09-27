@@ -1,19 +1,70 @@
 # backend/app/api/auth.py
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException, Depends
+from fastapi.security import HTTPBearer
+from pydantic import BaseModel
 from datetime import datetime, timezone
+
+from app.db.supabase import supabase
+from app.utils.auth import create_jwt_token, verify_password, decode_jwt_debug, test_jwt_secret
 from app.core.settings import settings
 
 router = APIRouter()
+security = HTTPBearer()
 
-# Agregar este endpoint al final de backend/app/api/auth.py
+# =========================
+# MODELOS
+# =========================
+class LoginRequest(BaseModel):
+    email: str
+    password: str
+
+# =========================
+# ENDPOINT LOGIN
+# =========================
+@router.post("/login")
+async def login(request: LoginRequest):
+    """Endpoint de login principal"""
+    try:
+        # Buscar usuario en Supabase
+        user_result = supabase.table("users").select("*").eq("email", request.email).single().execute()
+        
+        if not user_result.data:
+            raise HTTPException(status_code=401, detail="Credenciales inválidas")
+        
+        user = user_result.data
+        
+        # Verificar contraseña
+        if not verify_password(request.password, user["password_hash"]):
+            raise HTTPException(status_code=401, detail="Credenciales inválidas")
+        
+        # Crear JWT token
+        token = create_jwt_token({"user_id": user["id"], "email": user["email"]})
+        
+        return {
+            "access_token": token,
+            "token_type": "bearer",
+            "user": {
+                "id": user["id"],
+                "email": user["email"],
+                "name": user.get("name"),
+                "role": user.get("role", "user")
+            }
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail="Error interno del servidor")
+
+# =========================
+# ENDPOINT DEBUG JWT
+# =========================
 @router.post("/debug-jwt", tags=["debug"])
 async def debug_jwt_token(payload: dict):
     """
     Endpoint de debug para diagnosticar problemas JWT.
     Payload: {"token": "jwt_token_here"}
     """
-    from app.utils.auth import decode_jwt_debug, test_jwt_secret
-    
     try:
         token = payload.get("token", "").strip()
         if not token:
