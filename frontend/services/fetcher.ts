@@ -23,7 +23,7 @@ const envBase =
   (typeof import.meta !== "undefined" ? (import.meta as any).env?.VITE_API_BASE_URL : undefined);
 
 const fallbackProd = "https://softwareloyallight-production.up.railway.app";
-const fallbackDev = "http://localhost:8000";
+const fallbackDev = "https://softwareloyallight-production.up.railway.app";
 const isProdHost = isBrowser && /vercel\.app$/.test(window.location.hostname);
 
 const baseURL = normalizeBase(envBase) || (isProdHost ? fallbackProd : fallbackDev);
