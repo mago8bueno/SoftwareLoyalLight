@@ -61,22 +61,40 @@ if is_production and is_railway:
         ]
     )
 
-    # Middleware para forzar HTTPS
+    # Middleware para forzar HTTPS (optimizado para Railway health checks)
     @app.middleware("http")
     async def force_https_redirect(request: Request, call_next):
         forwarded_proto = request.headers.get("x-forwarded-proto")
+        host = request.headers.get("host", "")
+        path = request.url.path
         
-        if forwarded_proto == "http" or (not forwarded_proto and request.url.scheme == "http"):
+        # Excepciones para health checks de Railway
+        is_railway_healthcheck = (
+            host == "healthcheck.railway.app" or 
+            path in ["/health", "/health/", "/"] or
+            "railway" in host
+        )
+        
+        # Solo redirigir HTTP→HTTPS para requests de usuarios, no health checks
+        should_redirect = (
+            not is_railway_healthcheck and
+            (forwarded_proto == "http" or (not forwarded_proto and request.url.scheme == "http"))
+        )
+        
+        if should_redirect:
             https_url = request.url.replace(scheme="https")
             print(f"🔄 HTTP → HTTPS redirect: {request.url} → {https_url}")
             return RedirectResponse(url=str(https_url), status_code=301)
         
         response = await call_next(request)
-        response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains; preload"
-        response.headers["X-Content-Type-Options"] = "nosniff"
-        response.headers["X-Frame-Options"] = "DENY"
-        response.headers["X-XSS-Protection"] = "1; mode=block"
-        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+        
+        # Añadir headers de seguridad solo para requests de usuarios
+        if not is_railway_healthcheck:
+            response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains; preload"
+            response.headers["X-Content-Type-Options"] = "nosniff"
+            response.headers["X-Frame-Options"] = "DENY"
+            response.headers["X-XSS-Protection"] = "1; mode=block"
+            response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
         
         return response
 
