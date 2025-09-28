@@ -1,48 +1,117 @@
 # backend/app/api/auth.py
-from fastapi import APIRouter, HTTPException
+from __future__ import annotations
+
+from fastapi import APIRouter, HTTPException, Request, status
 from pydantic import BaseModel
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
+from typing import Any, Dict, Optional
 
-# Define el router ANTES de cualquier import pesado
+# --- Dependencias externas necesarias ---
+# pip install passlib[bcrypt] PyJWT
+from passlib.context import CryptContext
+import jwt
+
+# --- Imports de tu proyecto ---
+from app.db.supabase import supabase
+from app.core.settings import settings
+
 router = APIRouter()
-__all__ = ["router"]  # export explícito
+__all__ = ["router"]
 
-# ---- Modelos ----
+# -------- Config JWT / Password --------
+ALGORITHM = "HS256"
+ACCESS_TOKEN_EXPIRE_HOURS = 24
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
+
+# -------- Modelos --------
 class LoginRequest(BaseModel):
     email: str
     password: str
 
-# ---- Endpoints ----
+
+class TokenPayload(BaseModel):
+    user_id: str
+    email: str
+    exp: int
+
+
+class RefreshRequest(BaseModel):
+    token: str  # access token vigente (no refresco separado)
+
+
+# -------- Utilidades --------
+def _utcnow() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def create_access_token(data: Dict[str, Any],
+                        expires_delta: Optional[timedelta] = None) -> str:
+    if not getattr(settings, "JWT_SECRET", None):
+        raise RuntimeError("JWT_SECRET no configurado en settings")
+    to_encode = data.copy()
+    expire = _utcnow() + (expires_delta or timedelta(hours=ACCESS_TOKEN_EXPIRE_HOURS))
+    to_encode.update({"exp": expire})
+    return jwt.encode(to_encode, settings.JWT_SECRET, algorithm=ALGORITHM)
+
+
+def decode_token(token: str) -> TokenPayload:
+    if not getattr(settings, "JWT_SECRET", None):
+        raise RuntimeError("JWT_SECRET no configurado en settings")
+    try:
+        decoded = jwt.decode(token, settings.JWT_SECRET, algorithms=[ALGORITHM])
+        return TokenPayload(**decoded)  # valida estructura mínima
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED,
+                            detail="Token expirado")
+    except jwt.InvalidTokenError:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED,
+                            detail="Token inválido")
+
+
+def verify_password(plain_password: str, password_hash: str) -> bool:
+    try:
+        return pwd_context.verify(plain_password, password_hash or "")
+    except Exception:
+        return False
+
+
+def _extract_bearer_token(request: Request) -> str:
+    auth = request.headers.get("Authorization", "")
+    parts = auth.split()
+    if len(parts) == 2 and parts[0].lower() == "bearer":
+        return parts[1]
+    raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED,
+                        detail="Falta encabezado Authorization Bearer")
+
+
+# -------- Endpoints --------
 @router.post("/login")
-async def login(request: LoginRequest):
+async def login(request_body: LoginRequest):
     """
-    Endpoint de login principal.
-    Lazy-import para evitar romper el import del módulo si falta alguna dependencia.
+    Login por email + password: devuelve access_token (HS256) de 24h.
     """
     try:
-        from app.db.supabase import supabase
-        from app.utils.auth import create_jwt_token, verify_password
-
-        # Buscar usuario en Supabase
-        user_result = (
+        # 1) Buscar usuario
+        resp = (
             supabase.table("users")
             .select("*")
-            .eq("email", request.email)
+            .eq("email", request_body.email)
             .single()
             .execute()
         )
-
-        if not user_result or not user_result.data:
+        user = getattr(resp, "data", None)
+        if not user:
             raise HTTPException(status_code=401, detail="Credenciales inválidas")
 
-        user = user_result.data
-
-        # Verificar contraseña
-        if not verify_password(request.password, user.get("password_hash", "")):
+        # 2) Verificar contraseña
+        if not verify_password(request_body.password, user.get("password_hash", "")):
             raise HTTPException(status_code=401, detail="Credenciales inválidas")
 
-        # Crear JWT token
-        token = create_jwt_token({"user_id": user["id"], "email": user["email"]})
+        # 3) Crear token
+        token = create_access_token(
+            {"user_id": user["id"], "email": user["email"]}
+        )
 
         return {
             "access_token": token,
@@ -54,51 +123,82 @@ async def login(request: LoginRequest):
                 "role": user.get("role", "user"),
             },
         }
-
     except HTTPException:
         raise
     except Exception as e:
-        # Log opcional aquí
+        # Logea en tu plataforma (Railway, etc.) si procede
+        # print(f"[login] error: {e}")
         raise HTTPException(status_code=500, detail="Error interno del servidor")
+
+
+@router.get("/me")
+async def me(request: Request):
+    """
+    Lee Authorization: Bearer <token>, valida y devuelve el usuario.
+    """
+    token = _extract_bearer_token(request)
+    payload = decode_token(token)
+
+    # Relee usuario por seguridad (puede haber cambiado rol/nombre)
+    resp = (
+        supabase.table("users")
+        .select("id,email,name,role")
+        .eq("id", payload.user_id)
+        .single()
+        .execute()
+    )
+    user = getattr(resp, "data", None)
+    if not user:
+        raise HTTPException(status_code=401, detail="Usuario no encontrado")
+
+    return {"user": user, "token_valid": True}
+
+
+@router.post("/refresh")
+async def refresh(body: RefreshRequest):
+    """
+    Reemite un token nuevo a partir de uno aún válido (mismo payload, exp reiniciado).
+    No usa refresh-tokens separados (simple y suficiente para MVP).
+    """
+    payload = decode_token(body.token)
+    new_token = create_access_token({"user_id": payload.user_id, "email": payload.email})
+    return {"access_token": new_token, "token_type": "bearer"}
+
 
 @router.post("/debug-jwt", tags=["debug"])
 async def debug_jwt_token(payload: dict):
     """
-    Endpoint de debug para diagnosticar problemas JWT.
-    Payload: {"token": "jwt_token_here"}
+    DEBUG: enviar {"token": "<jwt>"} para inspección básica.
+    NO usar en producción abierta.
     """
     try:
-        from app.utils.auth import decode_jwt_debug, test_jwt_secret
-        from app.core.settings import settings
-
         token = (payload.get("token") or "").strip()
         if not token:
             return {"error": "Token requerido en payload"}
 
-        secret_info = test_jwt_secret()
-        token_info = decode_jwt_debug(token)
+        info: Dict[str, Any] = {"now": _utcnow().isoformat()}
+        try:
+            decoded = jwt.decode(token, settings.JWT_SECRET, algorithms=[ALGORITHM],
+                                 options={"verify_signature": True, "verify_exp": True})
+            info["decoded"] = decoded
+            info["valid"] = True
+        except jwt.ExpiredSignatureError:
+            info["valid"] = False
+            info["error"] = "expired"
+            info["decoded_noverify"] = jwt.decode(token, options={"verify_signature": False})
+        except jwt.InvalidTokenError as e:
+            info["valid"] = False
+            info["error"] = f"invalid: {type(e).__name__}"
 
-        settings_info = {
+        info["settings"] = {
             "has_jwt_secret": bool(getattr(settings, "JWT_SECRET", None)),
+            "jwt_secret_length": len(str(getattr(settings, "JWT_SECRET", ""))) if getattr(settings, "JWT_SECRET", None) else 0,
             "has_supabase_key": bool(getattr(settings, "SUPABASE_KEY", None)),
-            "jwt_secret_length": len(str(getattr(settings, "JWT_SECRET", "")))
-            if getattr(settings, "JWT_SECRET", None)
-            else 0,
-            "supabase_key_length": len(str(getattr(settings, "SUPABASE_KEY", "")))
-            if getattr(settings, "SUPABASE_KEY", None)
-            else 0,
         }
-
-        return {
-            "secret_config": secret_info,
-            "token_analysis": token_info,
-            "settings_info": settings_info,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-        }
-
+        return info
     except Exception as e:
         return {
             "error": str(e),
             "type": type(e).__name__,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": _utcnow().isoformat(),
         }
