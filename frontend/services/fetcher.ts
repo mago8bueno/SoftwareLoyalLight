@@ -93,6 +93,23 @@ fetcher.interceptors.request.use((config: InternalAxiosRequestConfig) => {
     config.baseURL = config.baseURL.replace('http://', 'https://');
     console.warn('[fetcher] 🚨 URL forzada a HTTPS:', config.baseURL);
   }
+  
+  // 🔧 FIX EXTREMO: Forzar HTTPS en la URL completa
+  if (config.url && config.url.includes('http://softwareloyallight-production.up.railway.app')) {
+    config.url = config.url.replace('http://softwareloyallight-production.up.railway.app', 'https://softwareloyallight-production.up.railway.app');
+    console.warn('[fetcher] 🚨 URL completa forzada a HTTPS:', config.url);
+  }
+  
+  // 🔍 DEBUG EXTRA: Verificar si hay algún interceptor que modifique la URL
+  const originalUrl = config.url;
+  const fullUrl = `${config.baseURL}${config.url}`;
+  console.log('[fetcher] 🔍 DEBUG INTERCEPTOR:', {
+    originalUrl,
+    baseURL: config.baseURL,
+    fullUrl,
+    hasHttp: fullUrl.includes('http://'),
+    hasHttps: fullUrl.includes('https://')
+  });
 
   // 🔍 DEBUG: Log de la URL que se va a usar
   if (isBrowser) {
@@ -215,4 +232,14 @@ if (isBrowser) {
   
   // 🔍 DEBUG: Verificar si hay múltiples instancias
   console.log("[fetcher] 🔧 Instancia creada:", fetcher.defaults.baseURL);
+  
+  // 🔍 DEBUG CRÍTICO: Verificar si hay interceptores globales de axios
+  console.log("[fetcher] 🔍 Interceptors globales de axios:", {
+    requestInterceptors: (axios.interceptors.request as any).handlers?.length || 0,
+    responseInterceptors: (axios.interceptors.response as any).handlers?.length || 0,
+    hasGlobalHandlers: ((axios.interceptors.request as any).handlers?.length || 0) > 0 || ((axios.interceptors.response as any).handlers?.length || 0) > 0
+  });
+  
+  // 🔍 DEBUG: Verificar si hay otras instancias de axios
+  console.log("[fetcher] 🔍 Instancias de axios en window:", Object.keys(window).filter(key => key.includes('axios') || key.includes('fetcher')));
 }
