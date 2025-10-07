@@ -200,8 +200,8 @@ app.include_router(ai_router,        prefix="/ai",        tags=["ai"])
 app.include_router(admin_router,     prefix="/admin",     tags=["admin"])
 
 # 7) ENDPOINT DE PRUEBA HTTPS DIRECTO
-@app.post("/auth/login-test")
-async def login_test(request: Request):
+@app.post("/test-https-redirect")
+async def test_https_redirect(request: Request):
     """Endpoint de prueba HTTPS directo en main.py"""
     if request.url.scheme == "http":
         https_url = request.url.replace(scheme="https")
