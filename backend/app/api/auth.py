@@ -87,10 +87,17 @@ def _extract_bearer_token(request: Request) -> str:
 
 # -------- Endpoints --------
 @router.post("/login")
-async def login(request_body: LoginRequest):
+async def login(request: Request, request_body: LoginRequest):
     """
     Login por email + password: devuelve access_token (HS256) de 24h.
     """
+    # 🔧 FIX HTTPS: Redirigir HTTP a HTTPS
+    if request.url.scheme == "http":
+        https_url = request.url.replace(scheme="https")
+        print(f"🔒 AUTH LOGIN: REDIRIGIENDO HTTP → HTTPS: {request.url} → {https_url}")
+        from fastapi.responses import RedirectResponse
+        return RedirectResponse(url=str(https_url), status_code=301)
+    
     try:
         # 1) Buscar usuario
         resp = (
