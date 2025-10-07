@@ -42,7 +42,10 @@ export const fetcher: AxiosInstance = axios.create({
   baseURL,
   timeout: 25000,
   withCredentials: false,
-  headers: { "Content-Type": "application/json" },
+  headers: { 
+    "Content-Type": "application/json",
+    "X-Requested-With": "XMLHttpRequest"
+  },
 });
 
 if (isBrowser) {
@@ -84,6 +87,20 @@ function readAuthFromStorage():
    ========================== */
 fetcher.interceptors.request.use((config: InternalAxiosRequestConfig) => {
   if (!config.headers) config.headers = new AxiosHeaders();
+
+  // 🔧 FIX CRÍTICO: Forzar HTTPS en todas las peticiones
+  if (config.baseURL && config.baseURL.startsWith('http://')) {
+    config.baseURL = config.baseURL.replace('http://', 'https://');
+    console.warn('[fetcher] 🚨 URL forzada a HTTPS:', config.baseURL);
+  }
+
+  // 🔍 DEBUG: Log de la URL que se va a usar
+  if (isBrowser) {
+    console.log("[fetcher] 🌐 Petición a:", `${config.baseURL}${config.url}`);
+    console.log("[fetcher] 🔍 URL completa:", config.baseURL, "+", config.url);
+    console.log("[fetcher] 🔍 Método:", config.method);
+    console.log("[fetcher] 🔍 Headers:", config.headers);
+  }
 
   if (isBrowser) {
     const auth = readAuthFromStorage();
@@ -194,4 +211,8 @@ export function debugFetcher() {
 
 if (isBrowser) {
   (window as any).debugFetcher = debugFetcher;
+  (window as any).fetcherInstance = fetcher;
+  
+  // 🔍 DEBUG: Verificar si hay múltiples instancias
+  console.log("[fetcher] 🔧 Instancia creada:", fetcher.defaults.baseURL);
 }
