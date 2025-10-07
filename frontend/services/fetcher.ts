@@ -262,6 +262,11 @@ if (isBrowser) {
   (window as any).debugFetcher = debugFetcher;
   (window as any).fetcherInstance = fetcher;
   
+  // 🔧 FORZAR RECARGA: Añadir timestamp para debug
+  console.log(`[fetcher] 🔧 FETCHER CARGADO: ${new Date().toISOString()}`);
+  console.log(`[fetcher] 🔧 User Agent: ${navigator.userAgent}`);
+  console.log(`[fetcher] 🔧 Location: ${window.location.href}`);
+  
   // 🚨 MONKEY PATCH EXTREMO: Interceptar todas las peticiones HTTP
   const originalFetch = window.fetch;
   window.fetch = function(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
@@ -304,8 +309,3 @@ if (isBrowser) {
   // 🔍 DEBUG CRÍTICO: Verificar si hay múltiples bundles
   console.log("[fetcher] 🔍 Scripts cargados:", document.scripts.length);
   Array.from(document.scripts).forEach((script, i) => {
-    if (script.src.includes('_app-') || script.src.includes('login-')) {
-      console.log(`[fetcher] 🔍 Script ${i}:`, script.src);
-    }
-  });
-}
