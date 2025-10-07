@@ -1,4 +1,4 @@
-// services/fetcher.ts — VERSIÓN CORREGIDA Y ENDURECIDA
+// services/fetcher.ts — VERSIÓN CORREGIDA Y ENDURECIDA - BUILD FORZADO 2025-01-21
 import axios, {
   AxiosError,
   AxiosInstance,
@@ -309,3 +309,8 @@ if (isBrowser) {
   // 🔍 DEBUG CRÍTICO: Verificar si hay múltiples bundles
   console.log("[fetcher] 🔍 Scripts cargados:", document.scripts.length);
   Array.from(document.scripts).forEach((script, i) => {
+    if (script.src.includes('_app-') || script.src.includes('login-')) {
+      console.log(`[fetcher] 🔍 Script ${i}:`, script.src);
+    }
+  });
+}
