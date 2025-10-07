@@ -1,7 +1,8 @@
 # backend/app/api/auth.py
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, Request, status
+from fastapi import APIRouter, HTTPException, Request, status, Depends
+from fastapi.responses import RedirectResponse
 from pydantic import BaseModel
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Optional
@@ -85,18 +86,26 @@ def _extract_bearer_token(request: Request) -> str:
                         detail="Falta encabezado Authorization Bearer")
 
 
+# 🔧 DEPENDENCIA HTTPS - Se ejecuta antes del endpoint
+def force_https(request: Request):
+    """Dependencia que fuerza HTTPS"""
+    if request.url.scheme == "http":
+        https_url = request.url.replace(scheme="https")
+        print(f"🔒 DEPENDENCIA HTTPS: REDIRIGIENDO HTTP → HTTPS: {request.url} → {https_url}")
+        return RedirectResponse(url=str(https_url), status_code=301)
+    return None
+
+
 # -------- Endpoints --------
 @router.post("/login")
-async def login(request: Request, request_body: LoginRequest):
+async def login(
+    request: Request, 
+    request_body: LoginRequest,
+    https_check: None = Depends(force_https)
+):
     """
     Login por email + password: devuelve access_token (HS256) de 24h.
     """
-    # 🔧 FIX HTTPS: Redirigir HTTP a HTTPS
-    if request.url.scheme == "http":
-        https_url = request.url.replace(scheme="https")
-        print(f"🔒 AUTH LOGIN: REDIRIGIENDO HTTP → HTTPS: {request.url} → {https_url}")
-        from fastapi.responses import RedirectResponse
-        return RedirectResponse(url=str(https_url), status_code=301)
     
     try:
         # 1) Buscar usuario
