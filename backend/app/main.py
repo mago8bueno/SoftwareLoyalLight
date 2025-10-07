@@ -62,24 +62,38 @@ if is_production and is_railway:
         allowed_hosts=["*"]  # Temporal para debugging
     )
 
-    # HTTPS Middleware AGRESIVO para Railway
+    # HTTPS Middleware INTELIGENTE para Railway
     @app.middleware("http") 
-    async def aggressive_https_middleware(request: Request, call_next):
-        """Middleware HTTPS agresivo - SIEMPRE redirigir HTTP a HTTPS"""
+    async def smart_https_middleware(request: Request, call_next):
+        """Middleware HTTPS inteligente - redirigir HTTP a HTTPS EXCEPTO health checks"""
         try:
-            # 🔧 FIX CRÍTICO: SIEMPRE verificar si es HTTP
-            if request.url.scheme == "http":
+            path = request.url.path
+            host = request.headers.get("host", "")
+            user_agent = request.headers.get("user-agent", "").lower()
+            
+            # Detectar health checks de Railway (NO redirigir estos)
+            is_railway_healthcheck = (
+                path in ["/health", "/health/", "/"] or
+                "railway" in host.lower() or
+                "healthcheck" in host.lower() or
+                "railway" in user_agent or
+                request.headers.get("x-forwarded-for", "").startswith("10.")  # IPs internas de Railway
+            )
+            
+            # 🔧 FIX: Solo redirigir HTTP si NO es un health check de Railway
+            if request.url.scheme == "http" and not is_railway_healthcheck:
                 https_url = request.url.replace(scheme="https")
                 print(f"🔒 REDIRIGIENDO HTTP → HTTPS: {request.url} → {https_url}")
                 return RedirectResponse(url=str(https_url), status_code=301)
             
-            # Si ya es HTTPS, continuar normalmente
+            # Para health checks o HTTPS, continuar normalmente
             response = await call_next(request)
             
-            # Headers de seguridad
-            response.headers["X-Content-Type-Options"] = "nosniff"
-            response.headers["X-Frame-Options"] = "DENY"
-            response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+            # Headers de seguridad solo para usuarios (no health checks)
+            if not is_railway_healthcheck:
+                response.headers["X-Content-Type-Options"] = "nosniff"
+                response.headers["X-Frame-Options"] = "DENY"
+                response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
             
             return response
             
