@@ -3,6 +3,13 @@ const path = require('path');
 const nextConfig = {
   reactStrictMode: true,
   swcMinify: true,
+  // 🔧 FORZAR NUEVO BUILD - Cambiar hash de bundles
+  generateBuildId: async () => {
+    return `build-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+  },
+  
+  // 🔧 CACHE BUSTER - Forzar recarga de assets
+  assetPrefix: process.env.NODE_ENV === 'production' ? `https://software-loyal-light.vercel.app` : '',
   env: {
     NEXT_PUBLIC_API_URL: process.env.NEXT_PUBLIC_API_URL,
     NEXT_PUBLIC_OPENAI_KEY: process.env.NEXT_PUBLIC_OPENAI_KEY,
