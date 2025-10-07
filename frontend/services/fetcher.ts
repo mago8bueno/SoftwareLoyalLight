@@ -26,6 +26,7 @@ const fallbackProd = "https://softwareloyallight-production.up.railway.app";
 const fallbackDev = "https://softwareloyallight-production.up.railway.app";
 const isProdHost = isBrowser && /vercel\.app$/.test(window.location.hostname);
 
+// Forzar HTTPS en producción
 const baseURL = normalizeBase(envBase) || (isProdHost ? fallbackProd : fallbackDev);
 
 /* ==========================
