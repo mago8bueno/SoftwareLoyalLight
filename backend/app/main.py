@@ -49,12 +49,15 @@ if "railway" in os.getenv("RAILWAY_STATIC_URL", "") or os.getenv("RAILWAY_PROJEC
 print(f"🔍 Environment check:")
 print(f"   ENVIRONMENT: {os.getenv('ENVIRONMENT', 'not set')}")
 print(f"   RAILWAY_ENVIRONMENT_NAME: {os.getenv('RAILWAY_ENVIRONMENT_NAME', 'not set')}")
-print(f"   RAILWAY_PROJECT_ID: {bool(os.getenv('RAILWAY_PROJECT_ID'))}")
+print(f"   RAILWAY_PROJECT_ID: {os.getenv('RAILWAY_PROJECT_ID', 'not set')}")
+print(f"   RAILWAY_STATIC_URL: {os.getenv('RAILWAY_STATIC_URL', 'not set')}")
 print(f"   Is production: {is_production}")
 print(f"   Is Railway: {is_railway}")
+print(f"   All env vars: {dict(os.environ)}")
 
-if is_production and is_railway:
-    print("🔒 CONFIGURANDO HTTPS Y SEGURIDAD PARA RAILWAY")
+# 🔧 FIX TEMPORAL: Activar HTTPS SIEMPRE en Railway
+if is_railway or "railway" in str(os.getenv("RAILWAY_STATIC_URL", "")) or os.getenv("RAILWAY_PROJECT_ID"):
+    print("🔒 CONFIGURANDO HTTPS Y SEGURIDAD PARA RAILWAY (FORZADO)")
     
     # TrustedHost simplificado
     app.add_middleware(
