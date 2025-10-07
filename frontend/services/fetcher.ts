@@ -262,6 +262,32 @@ if (isBrowser) {
   (window as any).debugFetcher = debugFetcher;
   (window as any).fetcherInstance = fetcher;
   
+  // 🚨 MONKEY PATCH EXTREMO: Interceptar todas las peticiones HTTP
+  const originalFetch = window.fetch;
+  window.fetch = function(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+    if (typeof input === 'string' && input.includes('http://softwareloyallight-production.up.railway.app')) {
+      const httpsUrl = input.replace('http://softwareloyallight-production.up.railway.app', 'https://softwareloyallight-production.up.railway.app');
+      console.error('[fetcher] 🚨🚨🚨 FETCH HTTP interceptado!');
+      console.error('[fetcher] 🚨 Original:', input);
+      console.error('[fetcher] 🚨 Corregida:', httpsUrl);
+      input = httpsUrl;
+    }
+    return originalFetch.call(this, input, init);
+  };
+  
+  // 🚨 MONKEY PATCH XMLHttpRequest
+  const originalXHROpen = XMLHttpRequest.prototype.open;
+  XMLHttpRequest.prototype.open = function(method: string, url: string, async: boolean = true, user?: string, password?: string) {
+    if (typeof url === 'string' && url.includes('http://softwareloyallight-production.up.railway.app')) {
+      const httpsUrl = url.replace('http://softwareloyallight-production.up.railway.app', 'https://softwareloyallight-production.up.railway.app');
+      console.error('[fetcher] 🚨🚨🚨 XMLHttpRequest HTTP interceptado!');
+      console.error('[fetcher] 🚨 Original:', url);
+      console.error('[fetcher] 🚨 Corregida:', httpsUrl);
+      url = httpsUrl;
+    }
+    return originalXHROpen.call(this, method, url, async, user, password);
+  };
+  
   // 🔍 DEBUG: Verificar si hay múltiples instancias
   console.log("[fetcher] 🔧 Instancia creada:", fetcher.defaults.baseURL);
   
@@ -274,4 +300,12 @@ if (isBrowser) {
   
   // 🔍 DEBUG: Verificar si hay otras instancias de axios
   console.log("[fetcher] 🔍 Instancias de axios en window:", Object.keys(window).filter(key => key.includes('axios') || key.includes('fetcher')));
+  
+  // 🔍 DEBUG CRÍTICO: Verificar si hay múltiples bundles
+  console.log("[fetcher] 🔍 Scripts cargados:", document.scripts.length);
+  Array.from(document.scripts).forEach((script, i) => {
+    if (script.src.includes('_app-') || script.src.includes('login-')) {
+      console.log(`[fetcher] 🔍 Script ${i}:`, script.src);
+    }
+  });
 }
