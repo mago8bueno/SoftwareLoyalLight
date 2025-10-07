@@ -26,8 +26,14 @@ const fallbackProd = "https://softwareloyallight-production.up.railway.app";
 const fallbackDev = "https://softwareloyallight-production.up.railway.app";
 const isProdHost = isBrowser && /vercel\.app$/.test(window.location.hostname);
 
-// Forzar HTTPS en producción
-const baseURL = normalizeBase(envBase) || (isProdHost ? fallbackProd : fallbackDev);
+// Forzar HTTPS siempre - solución temporal
+let baseURL = normalizeBase(envBase) || (isProdHost ? fallbackProd : fallbackDev);
+
+// 🔧 FIX TEMPORAL: Forzar HTTPS si detectamos HTTP
+if (baseURL && baseURL.startsWith('http://')) {
+  baseURL = baseURL.replace('http://', 'https://');
+  console.warn('[fetcher] URL convertida a HTTPS:', baseURL);
+}
 
 /* ==========================
    Axios instance
@@ -40,7 +46,11 @@ export const fetcher: AxiosInstance = axios.create({
 });
 
 if (isBrowser) {
-  console.log("[fetcher] baseURL =", baseURL);
+  console.log("[fetcher] ===== CONFIGURACIÓN FETCHER =====");
+  console.log("[fetcher] envBase =", envBase);
+  console.log("[fetcher] isProdHost =", isProdHost);
+  console.log("[fetcher] baseURL final =", baseURL);
+  console.log("[fetcher] =================================");
 }
 
 /* ==========================
