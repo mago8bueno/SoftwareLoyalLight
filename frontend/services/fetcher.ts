@@ -117,6 +117,16 @@ fetcher.interceptors.request.use((config: InternalAxiosRequestConfig) => {
     console.log("[fetcher] 🔍 URL completa:", config.baseURL, "+", config.url);
     console.log("[fetcher] 🔍 Método:", config.method);
     console.log("[fetcher] 🔍 Headers:", config.headers);
+    
+    // 🔍 DEBUG CRÍTICO: Verificar Service Workers
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.getRegistrations().then(registrations => {
+        console.log("[fetcher] 🔍 Service Workers activos:", registrations.length);
+        registrations.forEach((reg, i) => {
+          console.log(`[fetcher] 🔍 SW ${i}:`, reg.scope, reg.active?.scriptURL);
+        });
+      });
+    }
   }
 
   if (isBrowser) {
@@ -148,6 +158,28 @@ fetcher.interceptors.request.use((config: InternalAxiosRequestConfig) => {
     }
   }
 
+  return config;
+});
+
+// 🔧 INTERCEPTOR EXTREMO: Se ejecuta al final, justo antes de enviar
+fetcher.interceptors.request.use((config: InternalAxiosRequestConfig) => {
+  // 🔧 FIX FINAL: Forzar HTTPS una vez más antes del envío
+  const originalUrl = `${config.baseURL}${config.url}`;
+  if (originalUrl.includes('http://softwareloyallight-production.up.railway.app')) {
+    const httpsUrl = originalUrl.replace('http://softwareloyallight-production.up.railway.app', 'https://softwareloyallight-production.up.railway.app');
+    console.error('[fetcher] 🚨🚨🚨 INTERCEPTOR FINAL - URL HTTP detectada!');
+    console.error('[fetcher] 🚨 Original:', originalUrl);
+    console.error('[fetcher] 🚨 Corregida:', httpsUrl);
+    
+    // Forzar la corrección
+    if (config.baseURL?.includes('http://')) {
+      config.baseURL = config.baseURL.replace('http://', 'https://');
+    }
+    if (config.url?.includes('http://softwareloyallight-production.up.railway.app')) {
+      config.url = config.url.replace('http://softwareloyallight-production.up.railway.app', 'https://softwareloyallight-production.up.railway.app');
+    }
+  }
+  
   return config;
 });
 
