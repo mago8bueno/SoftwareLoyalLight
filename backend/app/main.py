@@ -55,54 +55,11 @@ print(f"   Is production: {is_production}")
 print(f"   Is Railway: {is_railway}")
 print(f"   All env vars: {dict(os.environ)}")
 
-# 🔧 MIDDLEWARE HTTPS GLOBAL - SIEMPRE ACTIVO
-print("🔒 CONFIGURANDO HTTPS MIDDLEWARE GLOBAL")
-
 # TrustedHost simplificado
 app.add_middleware(
     TrustedHostMiddleware, 
     allowed_hosts=["*"]  # Temporal para debugging
 )
-
-# HTTPS Middleware GLOBAL - SIEMPRE ACTIVO
-@app.middleware("http") 
-async def global_https_middleware(request: Request, call_next):
-    """Middleware HTTPS global - redirigir HTTP a HTTPS EXCEPTO health checks"""
-    try:
-        path = request.url.path
-        host = request.headers.get("host", "")
-        user_agent = request.headers.get("user-agent", "").lower()
-        
-        # Detectar health checks de Railway (NO redirigir estos)
-        is_railway_healthcheck = (
-            path in ["/health", "/health/", "/"] or
-            "railway" in host.lower() or
-            "healthcheck" in host.lower() or
-            "railway" in user_agent or
-            request.headers.get("x-forwarded-for", "").startswith("10.")  # IPs internas de Railway
-        )
-        
-        # 🔧 FIX: Solo redirigir HTTP si NO es un health check de Railway
-        if request.url.scheme == "http" and not is_railway_healthcheck:
-            https_url = request.url.replace(scheme="https")
-            print(f"🔒 REDIRIGIENDO HTTP → HTTPS: {request.url} → {https_url}")
-            return RedirectResponse(url=str(https_url), status_code=301)
-        
-        # Para health checks o HTTPS, continuar normalmente
-        response = await call_next(request)
-        
-        # Headers de seguridad solo para usuarios (no health checks)
-        if not is_railway_healthcheck:
-            response.headers["X-Content-Type-Options"] = "nosniff"
-            response.headers["X-Frame-Options"] = "DENY"
-            response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
-        
-        return response
-        
-    except Exception as e:
-        print(f"⚠️ HTTPS middleware error: {e}")
-        response = await call_next(request)
-        return response
 
 # 🆕 3) CORS CORREGIDO - SOLUCIÓN DEFINITIVA PARA VERCEL
 print("🌐 Configurando CORS para Vercel...")
@@ -188,7 +145,49 @@ async def debug_middleware(request: Request, call_next):
         response = await call_next(request)
         return response
 
-# 5) Error handlers
+# 5) HTTPS Middleware GLOBAL - AL FINAL PARA QUE SE EJECUTE ÚLTIMO
+print("🔒 CONFIGURANDO HTTPS MIDDLEWARE GLOBAL AL FINAL")
+
+@app.middleware("http") 
+async def global_https_middleware(request: Request, call_next):
+    """Middleware HTTPS global - redirigir HTTP a HTTPS EXCEPTO health checks"""
+    try:
+        path = request.url.path
+        host = request.headers.get("host", "")
+        user_agent = request.headers.get("user-agent", "").lower()
+        
+        # Detectar health checks de Railway (NO redirigir estos)
+        is_railway_healthcheck = (
+            path in ["/health", "/health/", "/"] or
+            "railway" in host.lower() or
+            "healthcheck" in host.lower() or
+            "railway" in user_agent or
+            request.headers.get("x-forwarded-for", "").startswith("10.")  # IPs internas de Railway
+        )
+        
+        # 🔧 FIX: Solo redirigir HTTP si NO es un health check de Railway
+        if request.url.scheme == "http" and not is_railway_healthcheck:
+            https_url = request.url.replace(scheme="https")
+            print(f"🔒 REDIRIGIENDO HTTP → HTTPS: {request.url} → {https_url}")
+            return RedirectResponse(url=str(https_url), status_code=301)
+        
+        # Para health checks o HTTPS, continuar normalmente
+        response = await call_next(request)
+        
+        # Headers de seguridad solo para usuarios (no health checks)
+        if not is_railway_healthcheck:
+            response.headers["X-Content-Type-Options"] = "nosniff"
+            response.headers["X-Frame-Options"] = "DENY"
+            response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+        
+        return response
+        
+    except Exception as e:
+        print(f"⚠️ HTTPS middleware error: {e}")
+        response = await call_next(request)
+        return response
+
+# 6) Error handlers
 register_exception_handlers(app)
 
 # 6) Routers
