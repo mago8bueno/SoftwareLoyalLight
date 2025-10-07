@@ -130,10 +130,10 @@ def require_user(credentials=Depends(security)) -> str:
                 headers={"WWW-Authenticate": "Bearer"},
             )
 
-        # 6. Extraer user_id del claim 'sub'
-        user_id = payload.get("sub")
+        # 6. Extraer user_id del claim 'user_id'
+        user_id = payload.get("user_id")
         if not user_id:
-            logger.error(f"🚫 Auth: Missing 'sub' claim in token. Payload: {list(payload.keys())}")
+            logger.error(f"🚫 Auth: Missing 'user_id' claim in token. Payload: {list(payload.keys())}")
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid token payload - missing user ID",
@@ -184,7 +184,7 @@ def decode_jwt_debug(token: str) -> dict:
             "valid_format": True,
             "payload": payload,
             "claims": list(payload.keys()),
-            "sub": payload.get("sub"),
+            "user_id": payload.get("user_id"),
             "email": payload.get("email"), 
             "exp": payload.get("exp"),
             "iat": payload.get("iat"),
