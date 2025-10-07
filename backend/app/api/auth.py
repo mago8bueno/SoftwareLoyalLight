@@ -97,6 +97,16 @@ def force_https(request: Request):
 
 
 # -------- Endpoints --------
+@router.get("/test-https")
+async def test_https(request: Request):
+    """Endpoint de prueba para verificar HTTPS"""
+    return {
+        "scheme": request.url.scheme,
+        "url": str(request.url),
+        "is_http": request.url.scheme == "http",
+        "timestamp": datetime.now().isoformat()
+    }
+
 @router.post("/login")
 async def login(
     request: Request, 
