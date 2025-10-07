@@ -37,9 +37,14 @@ MEDIA_DIR = os.path.join(os.getcwd(), "media")
 os.makedirs(MEDIA_DIR, exist_ok=True)
 app.mount("/media", StaticFiles(directory=MEDIA_DIR), name="media")
 
-# 🔒 2.2) HTTPS MIDDLEWARE
+# 🔒 2.2) HTTPS MIDDLEWARE - FORZAR SIEMPRE EN RAILWAY
 is_production = os.getenv("RAILWAY_ENVIRONMENT_NAME") == "production"
 is_railway = bool(os.getenv("RAILWAY_PROJECT_ID") or "railway" in os.getenv("RAILWAY_STATIC_URL", ""))
+
+# 🔧 FIX: Forzar HTTPS en Railway siempre
+if "railway" in os.getenv("RAILWAY_STATIC_URL", "") or os.getenv("RAILWAY_PROJECT_ID"):
+    is_railway = True
+    is_production = True
 
 print(f"🔍 Environment check:")
 print(f"   ENVIRONMENT: {os.getenv('ENVIRONMENT', 'not set')}")
@@ -57,45 +62,28 @@ if is_production and is_railway:
         allowed_hosts=["*"]  # Temporal para debugging
     )
 
-    # HTTPS Middleware simplificado
+    # HTTPS Middleware AGRESIVO para Railway
     @app.middleware("http") 
-    async def smart_https_middleware(request: Request, call_next):
-        """Middleware HTTPS inteligente para Railway"""
+    async def aggressive_https_middleware(request: Request, call_next):
+        """Middleware HTTPS agresivo - SIEMPRE redirigir HTTP a HTTPS"""
         try:
-            path = request.url.path
-            host = request.headers.get("host", "")
-            user_agent = request.headers.get("user-agent", "").lower()
-            
-            # Detectar health checks de Railway
-            is_railway_internal = (
-                path in ["/health", "/health/", "/"] or
-                "railway" in host.lower() or
-                "healthcheck" in host.lower() or
-                "railway" in user_agent
-            )
-            
-            # Para health checks, pasar directo sin modificar
-            if is_railway_internal:
-                response = await call_next(request)
-                return response
-            
-            # Para requests de usuarios, aplicar HTTPS redirect
-            forwarded_proto = request.headers.get("x-forwarded-proto")
-            if forwarded_proto == "http":
+            # 🔧 FIX CRÍTICO: SIEMPRE verificar si es HTTP
+            if request.url.scheme == "http":
                 https_url = request.url.replace(scheme="https")
+                print(f"🔒 REDIRIGIENDO HTTP → HTTPS: {request.url} → {https_url}")
                 return RedirectResponse(url=str(https_url), status_code=301)
             
+            # Si ya es HTTPS, continuar normalmente
             response = await call_next(request)
             
-            # Headers de seguridad solo para usuarios finales
-            if not is_railway_internal:
-                response.headers["X-Content-Type-Options"] = "nosniff"
-                response.headers["X-Frame-Options"] = "DENY"
+            # Headers de seguridad
+            response.headers["X-Content-Type-Options"] = "nosniff"
+            response.headers["X-Frame-Options"] = "DENY"
+            response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
             
             return response
             
         except Exception as e:
-            # En caso de error, procesar la request normalmente
             print(f"⚠️ HTTPS middleware error: {e}")
             response = await call_next(request)
             return response
