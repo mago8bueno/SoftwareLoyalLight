@@ -199,7 +199,18 @@ app.include_router(analytics_router, prefix="/analytics", tags=["analytics"])
 app.include_router(ai_router,        prefix="/ai",        tags=["ai"])
 app.include_router(admin_router,     prefix="/admin",     tags=["admin"])
 
-# 7) Health endpoints ultra-robustos para Railway
+# 7) ENDPOINT DE PRUEBA HTTPS DIRECTO
+@app.post("/auth/login-test")
+async def login_test(request: Request):
+    """Endpoint de prueba HTTPS directo en main.py"""
+    if request.url.scheme == "http":
+        https_url = request.url.replace(scheme="https")
+        print(f"🔒 MAIN.PY: REDIRIGIENDO HTTP → HTTPS: {request.url} → {https_url}")
+        return RedirectResponse(url=str(https_url), status_code=301)
+    
+    return {"message": "HTTPS funcionando", "scheme": request.url.scheme}
+
+# 8) Health endpoints ultra-robustos para Railway
 @app.api_route("/health", methods=["GET", "HEAD", "OPTIONS", "POST"])
 @app.api_route("/health/", methods=["GET", "HEAD", "OPTIONS", "POST"])
 def railway_health_check(request: Request):
@@ -296,14 +307,3 @@ if __name__ == "__main__":
     print(f"🔧 Debug: {settings.DEBUG}")
     print(f"🔒 HTTPS: {'✅' if is_production and is_railway else '❌'}")
     print(f"🌐 CORS origins: {len(allowed_origins)}")
-    print(f"🎯 CORS regex: https://software-loyal-light.*\\.vercel\\.app")
-    print(f"🛡️  Vercel support: ✅ FULL")
-    
-    uvicorn.run(
-        "app.main:app",
-        host="0.0.0.0",
-        port=port,
-        reload=False,
-        access_log=True,
-        log_level="info"
-    )
